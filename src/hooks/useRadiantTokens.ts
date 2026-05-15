@@ -16,7 +16,7 @@ import { Outpoint, reverseOutpoint } from '../utils/outpoint';
 import { decode } from 'cbor-x';
 import { hexToBytes } from '@noble/hashes/utils';
 import { putFile } from '../utils/opfs';
-import { FEE_PER_BYTE } from '../utils/constants';
+import { FEE_PER_BYTE, P2PKH_INPUT_SIZE } from '../utils/constants';
 import { unspentDiff } from '../utils/utxo';
 import { retrieveKeys, verifyPassword } from '../utils/crypto';
 import { rxdAddress } from '../signals';
@@ -250,7 +250,7 @@ export const useRadiantTokens = () => {
       const paymentPk = PrivateKey.from_wif(keys.walletWif);
 
       const outputSizes = [ftScriptSize];
-      const tx = new Transaction(0, 1);
+      const tx = new Transaction(1, 0);
       const outToken1 = new TxOut(amount, ftScript(receiveAddress, token.ref));
       tx.add_output(outToken1);
       const tokenChange = totalInputTokens - amount;
@@ -271,7 +271,7 @@ export const useRadiantTokens = () => {
       if (totalSats < unfundedTxFee) {
         return { error: 'insufficient-funds' };
       }
-      const feePerInput = BigInt(p2pkhScriptSigSize * FEE_PER_BYTE);
+      const feePerInput = BigInt(P2PKH_INPUT_SIZE * FEE_PER_BYTE);
       const fundingInputs = getInputs(fundingUtxos, unfundedTxFee, feePerInput, false);
       const totalInputSats = fundingInputs.reduce((a, item) => a + Number(item.value), 0);
 
@@ -289,7 +289,7 @@ export const useRadiantTokens = () => {
       }
 
       tokenInputs.forEach((tokenInput, inputIndex) => {
-        const inToken = new TxIn(Buffer.from(tokenInput.txid, 'hex'), tokenInput.vout, Script.from_hex(''));
+        const inToken = new TxIn(hexToBytes(tokenInput.txid), tokenInput.vout, Script.from_hex(''));
         inToken.set_satoshis(tokenInput.value);
         tx.add_input(inToken);
         tx.set_input(inputIndex, inToken);
@@ -297,7 +297,7 @@ export const useRadiantTokens = () => {
 
       let idx = tokenInputs.length;
       for (let u of fundingInputs || []) {
-        const inTx = new TxIn(Buffer.from(u.txid, 'hex'), u.vout, Script.from_hex(''));
+        const inTx = new TxIn(hexToBytes(u.txid), u.vout, Script.from_hex(''));
         inTx.set_satoshis(BigInt(u.value));
         tx.add_input(inTx);
         tx.set_input(idx, inTx);
@@ -327,8 +327,18 @@ export const useRadiantTokens = () => {
         tx.set_input(idx, txIn);
       });
 
-      const txid = await electrum.broadcast(tx.to_hex());
+      const rawtx = tx.to_hex();
       console.log(`Tx size ${tx.get_size()} fee ${txFee} fee per byte ${txFee / tx.get_size()}`);
+      console.log('FT rawtx:', rawtx);
+      let txid: string | undefined;
+      try {
+        txid = await electrum.broadcast(rawtx);
+      } catch (broadcastErr: any) {
+        const msg = broadcastErr?.message ?? broadcastErr?.toString() ?? 'broadcast-error';
+        console.error('Broadcast rejected:', msg);
+        throw new Error(msg);
+      }
+      if (!txid) throw new Error('broadcast-error');
 
       // Update UTXOs in DB
       await db.transaction('rw', db.utxo, async () => {
@@ -336,7 +346,7 @@ export const useRadiantTokens = () => {
         await db.utxo.bulkDelete(tokenInputs.map((u) => u.id));
 
         if (tokenChange > 0n) {
-          const changeUtxo = { ...tokenInputs[0], txid, vout: 1, value: BigInt(tokenChange) };
+          const changeUtxo = { ...tokenInputs[0], txid: txid!, vout: 1, value: BigInt(tokenChange) };
           db.utxo.put(changeUtxo);
         }
 

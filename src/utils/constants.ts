@@ -1,6 +1,6 @@
 export const RXD_DECIMAL_CONVERSION = 100000000;
 export const RXD20_INDEX_FEE = 1000;
-export const FEE_PER_BYTE = 3000;
+export const FEE_PER_BYTE = 10000;
 export const MAX_BYTES_PER_TX = 1000000; // 1MB
 export const MAX_FEE_PER_TX = MAX_BYTES_PER_TX * FEE_PER_BYTE;
 export const P2PKH_INPUT_SIZE = 148;
