@@ -194,6 +194,31 @@ const emitEventToActiveTabs = (message) => {
 // REQUESTS ***************************************
 
 const processConnectRequest = (message, sendResponse, isAuthorized) => {
+  if (isAuthorized) {
+    // Site is already whitelisted — skip the popup if the wallet is also unlocked.
+    // appState is removed from storage when the wallet locks (Web3Context does this),
+    // so its presence doubles as the "is unlocked" check.
+    chrome.storage.local.get(['appState'], (result) => {
+      const appState = result?.appState;
+      if (appState && !appState.isLocked && appState.pubKeys?.identityPubKey) {
+        chrome.storage.local.set({ lastActiveTime: Date.now() });
+        sendResponse({
+          type: 'connect',
+          success: true,
+          data: appState.pubKeys.identityPubKey,
+        });
+        return;
+      }
+      // Wallet is locked — open popup so the user can unlock, then auto-approve.
+      responseCallbackForConnectRequest = sendResponse;
+      chrome.storage.local
+        .set({ connectRequest: { ...message.params, isAuthorized } })
+        .then(() => launchPopUp());
+    });
+    return true;
+  }
+
+  // New site — open popup to ask for permission.
   responseCallbackForConnectRequest = sendResponse;
   chrome.storage.local
     .set({

@@ -71,18 +71,17 @@ export const ConnectRequest = (props: ConnectRequestProps) => {
     if (isDecided) return;
     if (!thirdPartyAppRequestData?.isAuthorized) return;
     if (!rxdPubKey.value) return;
-    if (!window.location.href.includes('localhost')) {
-      chrome.runtime.sendMessage({
-        action: 'userConnectResponse',
-        decision: 'approved',
-        pubKeys: { rxdPubKey: rxdPubKey.value, identityPubKey: identityPubKey.value },
-      });
-      storage.remove('connectRequest');
-      // We don't want the window to stay open after a successful connection. The 10ms timeout is used because of some weirdness with how chrome.sendMessage() works
-      setTimeout(() => {
-        if (popupId) chrome.windows.remove(popupId);
-      }, 1000);
-    }
+    // Wallet is unlocked and site is already authorised — auto-approve silently.
+    chrome.runtime.sendMessage({
+      action: 'userConnectResponse',
+      decision: 'approved',
+      pubKeys: { rxdPubKey: rxdPubKey.value, identityPubKey: identityPubKey.value },
+    });
+    storage.remove('connectRequest');
+    setTimeout(() => {
+      if (popupId) chrome.windows.remove(popupId);
+      window.close();
+    }, 300);
   }, [popupId, thirdPartyAppRequestData, isDecided]);
 
   useEffect(() => {
@@ -137,8 +136,8 @@ export const ConnectRequest = (props: ConnectRequestProps) => {
       when={!thirdPartyAppRequestData?.isAuthorized}
       whenFalseContent={
         <Container>
-          <Text theme={theme} style={{ fontSize: '1.5rem', fontWeight: 700 }}>
-            Reconnecting to {thirdPartyAppRequestData?.appName} ...
+          <Text theme={theme} style={{ fontSize: '1rem', fontWeight: 500, opacity: 0.7 }}>
+            Reconnecting...
           </Text>
         </Container>
       }
