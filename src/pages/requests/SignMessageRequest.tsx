@@ -15,7 +15,6 @@ import { useWeb3Context } from '../../hooks/useWeb3Context';
 import { ColorThemeProps } from '../../theme';
 import { DerivationTag } from '../../utils/keys';
 import { locked } from '../../signals';
-import { sleep } from '../../utils/sleep';
 import { storage } from '../../utils/storage';
 
 const RequestDetailsContainer = styled.div<ColorThemeProps>`
