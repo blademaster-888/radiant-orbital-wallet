@@ -17,6 +17,7 @@ import { ColorThemeProps } from '../../theme';
 import { sleep } from '../../utils/sleep';
 import { generateSeedAndStoreEncrypted } from '../../utils/crypto';
 import { unlock } from '../../utils/keyring';
+import { LEGACY_WALLET_PATH, LEGACY_IDENTITY_PATH } from '../../utils/constants';
 
 export type SupportedWalletImports = 'wif';
 
@@ -93,6 +94,7 @@ export const RestoreWallet = () => {
   const { hideMenu, showMenu } = useBottomMenu();
   const [loading, setLoading] = useState(false);
   const [isExpertImport, setIsExpertImport] = useState(false);
+  const [isLegacyImport, setIsLegacyImport] = useState(false);
   const [importWallet, setImportWallet] = useState<SupportedWalletImports | undefined>();
   const [walletDerivation, setWalletDerivation] = useState<string | null>(null);
   const [identityDerivation, setIdentityDerivation] = useState<string | null>(null);
@@ -105,6 +107,18 @@ export const RestoreWallet = () => {
   }, [hideMenu, showMenu]);
 
   const handleExpertToggle = () => setIsExpertImport(!isExpertImport);
+
+  const handleLegacyToggle = () => {
+    const next = !isLegacyImport;
+    setIsLegacyImport(next);
+    if (next) {
+      setWalletDerivation(LEGACY_WALLET_PATH);
+      setIdentityDerivation(LEGACY_IDENTITY_PATH);
+    } else {
+      setWalletDerivation(null);
+      setIdentityDerivation(null);
+    }
+  };
 
   const handleRestore = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -187,10 +201,18 @@ export const RestoreWallet = () => {
             onChange={(e) => setSeedWords(e.target.value)}
             $isExpert={isExpertImport}
           />
+          <Show when={!importWallet}>
+            <ExpertImportWrapper>
+              <ToggleSwitch theme={theme} on={isLegacyImport} onChange={handleLegacyToggle} />
+              <Text theme={theme} style={{ margin: '0 0 0 0.5rem', textAlign: 'left' }}>
+                Legacy wallet (coin type 0)
+              </Text>
+            </ExpertImportWrapper>
+          </Show>
           <Show when={isExpertImport}>
             <Input
               theme={theme}
-              placeholder="Wallet Derivation ex. m/44'/236'/0'/0/0"
+              placeholder="Wallet Derivation ex. m/44'/512'/0'/0/0"
               type="text"
               value={walletDerivation ?? ''}
               onChange={(e) => setWalletDerivation(e.target.value)}
@@ -198,7 +220,7 @@ export const RestoreWallet = () => {
             />
             <Input
               theme={theme}
-              placeholder="Identity Derivation ex. m/0'/236'/0'/0/0"
+              placeholder="Identity Derivation ex. m/44'/512'/0'/1/0"
               type="text"
               value={identityDerivation ?? ''}
               onChange={(e) => setIdentityDerivation(e.target.value)}

@@ -154,6 +154,23 @@ export const App = () => {
     );
   }, [menuContext]);
 
+  // Keep request state in sync if the popup was already open when a new request arrived.
+  // The one-time storage.get above won't fire again, so we watch for storage changes.
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.storage?.onChanged) return;
+    const onChanged = (changes: Record<string, chrome.storage.StorageChange>) => {
+      if (locked.value) return;
+      if (changes.signMessageRequest?.newValue) setMessageToSign(changes.signMessageRequest.newValue);
+      if (changes.sendRxdRequest?.newValue) setRxdSendRequest(changes.sendRxdRequest.newValue);
+      if (changes.broadcastRequest?.newValue) setBroadcastRequest(changes.broadcastRequest.newValue);
+      if (changes.getSignaturesRequest?.newValue) setGetSignaturesRequest(changes.getSignaturesRequest.newValue);
+      if (changes.encryptRequest?.newValue) setMessageToEncrypt(changes.encryptRequest.newValue);
+      if (changes.decryptRequest?.newValue) setMessagesToDecrypt(changes.decryptRequest.newValue);
+    };
+    chrome.storage.onChanged.addListener(onChanged);
+    return () => chrome.storage.onChanged.removeListener(onChanged);
+  }, []);
+
   useEffect(() => {
     electrum.changeEndpoint('wss://electrumx.radiant4people.com:50022');
   }, []);

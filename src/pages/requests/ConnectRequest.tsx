@@ -69,7 +69,7 @@ export const ConnectRequest = (props: ConnectRequestProps) => {
 
   useEffect(() => {
     if (isDecided) return;
-    if (thirdPartyAppRequestData && !thirdPartyAppRequestData.isAuthorized) return;
+    if (!thirdPartyAppRequestData?.isAuthorized) return;
     if (!rxdPubKey.value) return;
     if (!window.location.href.includes('localhost')) {
       chrome.runtime.sendMessage({
@@ -99,14 +99,16 @@ export const ConnectRequest = (props: ConnectRequestProps) => {
   const handleConnectDecision = async (approved: boolean) => {
     if (chrome.runtime) {
       if (approved) {
-        storage.set({
-          whitelist: [
-            ...whiteListedApps,
-            {
-              domain: thirdPartyAppRequestData?.domain,
-              icon: thirdPartyAppRequestData?.appIcon,
-            },
-          ],
+        // Read connectRequest and whitelist directly from storage — the prop may not
+        // have loaded yet if App.tsx's useEffect lost the race with Start.tsx's navigation.
+        const stored = await chrome.storage.local.get(['connectRequest', 'whitelist']);
+        const domain = stored.connectRequest?.domain ?? thirdPartyAppRequestData?.domain;
+        const icon = stored.connectRequest?.appIcon ?? thirdPartyAppRequestData?.appIcon;
+        const existingWhitelist: { domain: string; icon: string }[] = stored.whitelist ?? [];
+
+        // Await the whitelist write so verifyAccess() sees it before connect() resolves
+        await chrome.storage.local.set({
+          whitelist: [...existingWhitelist, { domain, icon }],
         });
         chrome.runtime.sendMessage({
           action: 'userConnectResponse',
@@ -127,9 +129,7 @@ export const ConnectRequest = (props: ConnectRequestProps) => {
     setIsDecided(true);
 
     storage.remove('connectRequest');
-    setTimeout(() => {
-      if (popupId) chrome.windows.remove(popupId);
-    }, 100);
+    setTimeout(() => window.close(), 100);
   };
 
   return (
@@ -144,7 +144,11 @@ export const ConnectRequest = (props: ConnectRequestProps) => {
       }
     >
       <Container>
-        <Icon size="5rem" src={thirdPartyAppRequestData?.appIcon} />
+        <Icon
+          size="5rem"
+          src={thirdPartyAppRequestData?.appIcon || chrome.runtime.getURL('icons/icon128.png')}
+          onError={(e) => { (e.currentTarget as HTMLImageElement).src = chrome.runtime.getURL('icons/icon128.png'); }}
+        />
         <HeaderText theme={theme} style={{ width: '90%' }}>
           {thirdPartyAppRequestData?.appName}
         </HeaderText>

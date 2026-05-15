@@ -40,20 +40,23 @@ let popupWindowId: number | undefined | null = null;
 const INACTIVITY_LIMIT = 10 * 60 * 1000; // 10 minutes
 
 const launchPopUp = () => {
-  chrome.windows.create(
-    {
-      url: chrome.runtime.getURL('index.html'),
-      type: 'popup',
-      width: 360,
-      height: 567,
-    },
-    (window) => {
-      popupWindowId = window?.id;
-      chrome.storage.local.set({
-        popupWindowId,
-      });
-    },
-  );
+  // Open as the extension action popup (appears near the toolbar icon)
+  chrome.action.openPopup().catch(() => {
+    // Fallback for older Chrome: open as a standalone popup window
+    chrome.windows.create(
+      {
+        url: chrome.runtime.getURL('index.html'),
+        type: 'popup',
+        width: 360,
+        height: 567,
+        focused: true,
+      },
+      (window) => {
+        popupWindowId = window?.id;
+        chrome.storage.local.set({ popupWindowId });
+      },
+    );
+  });
 };
 
 const verifyAccess = async (requestingDomain) => {
@@ -64,13 +67,7 @@ const verifyAccess = async (requestingDomain) => {
         resolve(false);
         return;
       }
-
-      if (whitelist.map((i) => i.domain).includes(requestingDomain)) {
-        resolve(true);
-      } else {
-        resolve(false);
-      }
-      resolve(false);
+      resolve(whitelist.map((i) => i.domain).includes(requestingDomain));
     });
   });
 };
@@ -611,6 +608,10 @@ const processDecryptRequest = (message, sendResponse) => {
 const processConnectResponse = (response) => {
   try {
     if (responseCallbackForConnectRequest) {
+      if (response.decision === 'approved') {
+        // Update lastActiveTime so isConnected() passes the inactivity check
+        chrome.storage.local.set({ lastActiveTime: Date.now() });
+      }
       responseCallbackForConnectRequest({
         type: 'connect',
         success: true,
@@ -679,19 +680,27 @@ const processTransferTokenResponse = (response) => {
 };
 
 const processSignMessageResponse = (response) => {
-  if (!responseCallbackForSignMessageRequest) throw Error('Missing callback!');
+  if (!responseCallbackForSignMessageRequest) return true;
   try {
-    responseCallbackForSignMessageRequest({
-      type: 'signMessage',
-      success: true,
-      data: {
-        address: response?.address,
-        pubKey: response?.pubKey,
-        message: response?.message,
-        sig: response?.sig,
-        derivationTag: response?.derivationTag,
-      },
-    });
+    if (response?.error) {
+      responseCallbackForSignMessageRequest({
+        type: 'signMessage',
+        success: false,
+        error: response.error,
+      });
+    } else {
+      responseCallbackForSignMessageRequest({
+        type: 'signMessage',
+        success: true,
+        data: {
+          address: response?.address,
+          pubKey: response?.pubKey,
+          message: response?.message,
+          sig: response?.sig,
+          derivationTag: response?.derivationTag,
+        },
+      });
+    }
   } catch (error) {
     responseCallbackForSignMessageRequest({
       type: 'signMessage',

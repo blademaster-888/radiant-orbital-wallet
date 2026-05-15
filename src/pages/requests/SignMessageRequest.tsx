@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { styled } from 'styled-components';
 import { BackButton } from '../../components/BackButton';
 import { Button } from '../../components/Button';
@@ -13,6 +14,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { useWeb3Context } from '../../hooks/useWeb3Context';
 import { ColorThemeProps } from '../../theme';
 import { DerivationTag } from '../../utils/keys';
+import { locked } from '../../signals';
 import { sleep } from '../../utils/sleep';
 import { storage } from '../../utils/storage';
 
@@ -52,8 +54,7 @@ export const SignMessageRequest = (props: SignMessageRequestProps) => {
   const { theme } = useTheme();
   const { setSelected } = useBottomMenu();
   const [passwordConfirm, setPasswordConfirm] = useState('');
-  const [signature, setSignature] = useState<string | undefined>(undefined);
-  const { addSnackbar, message } = useSnackbar();
+  const { addSnackbar } = useSnackbar();
   const { isPasswordRequired } = useWeb3Context();
 
   const { isProcessing, setIsProcessing, signMessage } = useRxd();
@@ -61,15 +62,6 @@ export const SignMessageRequest = (props: SignMessageRequestProps) => {
   useEffect(() => {
     setSelected('rxd');
   }, [setSelected]);
-
-  useEffect(() => {
-    if (!signature) return;
-    if (!message && signature) {
-      resetSendState();
-    }
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [message, signature]);
 
   useEffect(() => {
     const onbeforeunloadFn = () => {
@@ -82,17 +74,11 @@ export const SignMessageRequest = (props: SignMessageRequestProps) => {
     };
   }, [popupId]);
 
-  const resetSendState = () => {
-    setPasswordConfirm('');
-    setIsProcessing(false);
-  };
-
   const handleSigning = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setIsProcessing(true);
-    await sleep(25);
+    flushSync(() => setIsProcessing(true));
 
-    if (!passwordConfirm && isPasswordRequired) {
+    if (!passwordConfirm && isPasswordRequired && locked.value) {
       addSnackbar('You must enter a password!', 'error');
       setIsProcessing(false);
       return;
@@ -117,17 +103,14 @@ export const SignMessageRequest = (props: SignMessageRequestProps) => {
       ...signRes,
     });
 
-    addSnackbar('Successfully Signed!', 'success');
-    setSignature(signRes.sig);
-    setIsProcessing(false);
-    setTimeout(() => {
-      onSignature();
-      storage.remove('signMessageRequest');
-      if (popupId) chrome.windows.remove(popupId);
-    }, 2000);
+    onSignature();
+    storage.remove('signMessageRequest');
+    if (popupId) chrome.windows.remove(popupId);
+    window.close();
   };
 
   const clearRequest = () => {
+    chrome.runtime.sendMessage({ action: 'signMessageResponse', error: 'user-cancelled' });
     storage.remove('signMessageRequest');
     if (popupId) chrome.windows.remove(popupId);
     window.location.reload();
@@ -150,7 +133,7 @@ export const SignMessageRequest = (props: SignMessageRequestProps) => {
             whenFalseContent={
               <>
                 <TagText theme={theme}>{`Label: orbital`}</TagText>
-                <TagText theme={theme}>{`Id: identity`}</TagText>
+                <TagText theme={theme}>{`Id: rxd`}</TagText>
               </>
             }
           >
@@ -161,7 +144,7 @@ export const SignMessageRequest = (props: SignMessageRequestProps) => {
             <RequestDetailsContainer>
               {<Text style={{ color: theme.white }}>{`Message: ${messageToSign.message}`}</Text>}
             </RequestDetailsContainer>
-            <Show when={isPasswordRequired}>
+            <Show when={isPasswordRequired && locked.value}>
               <Input
                 theme={theme}
                 placeholder="Enter Wallet Password"
@@ -171,6 +154,7 @@ export const SignMessageRequest = (props: SignMessageRequestProps) => {
               />
             </Show>
             <Button theme={theme} type="primary" label="Sign Message" disabled={isProcessing} isSubmit />
+            <Button theme={theme} type="secondary-outline" label="Cancel" disabled={isProcessing} onClick={clearRequest} />
           </FormContainer>
         </ConfirmContent>
       </Show>

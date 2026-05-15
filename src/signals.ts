@@ -39,7 +39,7 @@ export async function initSignalsFromStorage() {
           locked.value = false;
         }
       }
+      resolve(true);
     });
-    resolve(true);
   });
 }

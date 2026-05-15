@@ -26,6 +26,7 @@ import { getKeys, unlock } from '../utils/keyring';
 import { hexToBytes } from '@noble/hashes/utils';
 import { useSignals } from '@preact/signals-react/runtime';
 import { effect } from '@preact/signals-react';
+import { locked } from '../signals';
 
 type SendRxdResponse = {
   txid?: string;
@@ -242,13 +243,18 @@ export const useRxd = () => {
     password: string,
   ): Promise<SignMessageResponse | undefined> => {
     const { message, encoding } = messageToSign;
-    const isAuthenticated = await verifyPassword(password);
-    if (!isAuthenticated) {
-      return { error: 'invalid-password' };
+    let keys: Keys;
+    if (!locked.value) {
+      const k = await getKeys();
+      if (!k) return { error: 'invalid-password' };
+      keys = k as Keys;
+    } else {
+      const isAuthenticated = await verifyPassword(password);
+      if (!isAuthenticated) return { error: 'invalid-password' };
+      keys = (await retrieveKeys(password)) as Keys;
     }
     try {
-      const keys = (await retrieveKeys(password)) as Keys;
-      const derivationTag = messageToSign.tag ?? { label: 'orbital', id: 'identity', domain: '', meta: {} };
+      const derivationTag = messageToSign.tag ?? { label: 'orbital', id: 'rxd', domain: '', meta: {} };
       const privateKey = getPrivateKeyFromTag(derivationTag, keys);
 
       if (!privateKey.to_wif()) {

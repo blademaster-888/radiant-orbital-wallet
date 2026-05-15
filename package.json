@@ -1,6 +1,6 @@
 {
   "name": "orbital-wallet",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "dependencies": {
     "@fontsource/days-one": "^5.0.20",
@@ -79,6 +79,7 @@
     "@types/mime": "^3.0.4",
     "@types/qrcode": "^1.5.2",
     "crypto-browserify": "^3.12.0",
+    "esbuild": "^0.28.0",
     "husky": "^8.0.3",
     "prettier": "^3.0.3",
     "process": "^0.11.10",
