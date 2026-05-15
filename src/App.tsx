@@ -24,6 +24,7 @@ import { Start } from './pages/onboarding/Start';
 import { TokenWallet } from './pages/TokenWallet';
 import { BroadcastRequest } from './pages/requests/BroadcastRequest';
 import { RxdSendRequest } from './pages/requests/RxdSendRequest';
+import { TransferTokenRequest, TransferTokenRequestParams } from './pages/requests/TransferTokenRequest';
 import { ConnectRequest } from './pages/requests/ConnectRequest';
 import { DecryptRequest } from './pages/requests/DecryptRequest';
 import { EncryptRequest } from './pages/requests/EncryptRequest';
@@ -82,6 +83,8 @@ export const App = () => {
   const [getSignaturesRequest, setGetSignaturesRequest] = useState<Web3GetSignaturesRequest | undefined>();
   const [messageToEncrypt, setMessageToEncrypt] = useState<Web3EncryptRequest | undefined>();
   const [messagesToDecrypt, setMessagesToDecrypt] = useState<Web3DecryptRequest | undefined>();
+  const [transferTokenRequest, setTransferTokenRequest] = useState<TransferTokenRequestParams | undefined>();
+  const [transferTokenKey, setTransferTokenKey] = useState(0);
 
   useActivityDetector();
 
@@ -102,6 +105,7 @@ export const App = () => {
         'getSignaturesRequest',
         'encryptRequest',
         'decryptRequest',
+        'transferTokenRequest',
       ],
       (result) => {
         const {
@@ -114,6 +118,7 @@ export const App = () => {
           getSignaturesRequest,
           encryptRequest,
           decryptRequest,
+          transferTokenRequest,
         } = result;
 
         if (popupWindowId) setPopupId(popupWindowId);
@@ -150,6 +155,10 @@ export const App = () => {
         if (decryptRequest) {
           setMessagesToDecrypt(decryptRequest);
         }
+
+        if (transferTokenRequest) {
+          setTransferTokenRequest(transferTokenRequest);
+        }
       },
     );
   }, [menuContext]);
@@ -166,6 +175,14 @@ export const App = () => {
       if (changes.getSignaturesRequest?.newValue) setGetSignaturesRequest(changes.getSignaturesRequest.newValue);
       if (changes.encryptRequest?.newValue) setMessageToEncrypt(changes.encryptRequest.newValue);
       if (changes.decryptRequest?.newValue) setMessagesToDecrypt(changes.decryptRequest.newValue);
+      if ('transferTokenRequest' in changes) {
+        if (changes.transferTokenRequest?.newValue) {
+          setTransferTokenKey((k) => k + 1);
+          setTransferTokenRequest(changes.transferTokenRequest!.newValue);
+        } else {
+          setTransferTokenRequest(undefined);
+        }
+      }
     };
     chrome.storage.onChanged.addListener(onChanged);
     return () => chrome.storage.onChanged.removeListener(onChanged);
@@ -210,7 +227,8 @@ export const App = () => {
                           !broadcastRequest &&
                           !getSignaturesRequest &&
                           !messageToEncrypt &&
-                          !messagesToDecrypt
+                          !messagesToDecrypt &&
+                          !transferTokenRequest
                         }
                         whenFalseContent={
                           <>
@@ -254,6 +272,14 @@ export const App = () => {
                                 encryptedMessages={messagesToDecrypt as Web3DecryptRequest}
                                 popupId={popupId}
                                 onDecrypt={() => setMessagesToDecrypt(undefined)}
+                              />
+                            </Show>
+                            <Show when={!!transferTokenRequest}>
+                              <TransferTokenRequest
+                                key={transferTokenKey}
+                                request={transferTokenRequest as TransferTokenRequestParams}
+                                popupId={popupId}
+                                onResponse={() => setTransferTokenRequest(undefined)}
                               />
                             </Show>
                           </>

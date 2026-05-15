@@ -77,6 +77,27 @@ const authorizeRequest = async (message) => {
   return await verifyAccess(params.domain);
 };
 
+// PORT LISTENER — detects popup close for any reason (including click-away)
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'transferTokenPopup') return;
+  // Snapshot the callback at connect time so a retry can't hijack this handler.
+  const myCallback = responseCallbackForTransferTokenRequest;
+  port.onDisconnect.addListener(async () => {
+    if (!myCallback || responseCallbackForTransferTokenRequest !== myCallback) return;
+    // Check whether the send completed before the popup closed.
+    const { transferTokenSuccess } = await chrome.storage.local.get('transferTokenSuccess');
+    chrome.storage.local.remove('transferTokenSuccess');
+    if (responseCallbackForTransferTokenRequest !== myCallback) return;
+    responseCallbackForTransferTokenRequest = null;
+    chrome.storage.local.remove(['transferTokenRequest', 'popupWindowId']);
+    if (transferTokenSuccess) {
+      myCallback({ type: 'transferToken', success: true, data: { txid: transferTokenSuccess } });
+    } else {
+      myCallback({ type: 'transferToken', success: false, error: 'User cancelled' });
+    }
+  });
+});
+
 // MESSAGE LISTENER
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (['signedOut', 'networkChanged'].includes(message.action)) {
@@ -153,8 +174,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return processGetTokenRequest(sendResponse);
       case 'sendRxd':
         return processSendRxdRequest(message, sendResponse);
-      //case 'transferToken':
-      //  return processTransferTokenRequest(message, sendResponse);
+      case 'transferToken':
+        return processTransferTokenRequest(message, sendResponse);
       case 'signMessage':
         return processSignMessageRequest(message, sendResponse);
       case 'broadcast':
@@ -354,14 +375,49 @@ const processGetNetworkRequest = (sendResponse) => {
   }
 };
 
-const processGetTokenRequest = (sendResponse) => {
+const EXT_TO_MIME: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  svg: 'image/svg+xml',
+};
+
+async function readIconDataUrl(ref: string, fileExt: string): Promise<string | undefined> {
+  if (!fileExt) return undefined;
   try {
-    chrome.storage.local.get(['appState'], (result) => {
-      sendResponse({
-        type: 'getTokens',
-        success: true,
-        data: result?.appState?.tokens ?? [],
-      });
+    const root = await navigator.storage.getDirectory();
+    const dir = await root.getDirectoryHandle('icon', { create: false });
+    const fileHandle = await dir.getFileHandle(`${ref}.${fileExt}`);
+    const buf = await (await fileHandle.getFile()).arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = '';
+    bytes.forEach((b) => { binary += String.fromCharCode(b); });
+    const mime = EXT_TO_MIME[fileExt.toLowerCase()] || 'image/png';
+    return `data:${mime};base64,${btoa(binary)}`;
+  } catch {
+    return undefined;
+  }
+}
+
+const processGetTokenRequest = async (sendResponse) => {
+  try {
+    // Only return tokens with a positive balance — avoids stale entries that
+    // haven't been cleaned up yet by updateTokenBalances().
+    const tokens = await db.token.filter((t) => t.balance > 0n).toArray();
+    const data = await Promise.all(
+      tokens.map(async (t) => ({
+        ...t,
+        balance: String(t.balance),
+        iconSrc: await readIconDataUrl(t.ref, t.fileExt),
+      })),
+    );
+    sendResponse({
+      type: 'getTokens',
+      success: true,
+      data,
     });
   } catch (error) {
     sendResponse({
@@ -441,7 +497,6 @@ const processSendRxdRequest = (message, sendResponse) => {
   }
 };
 
-/*
 const processTransferTokenRequest = (message, sendResponse) => {
   if (!message.params) {
     sendResponse({
@@ -467,7 +522,6 @@ const processTransferTokenRequest = (message, sendResponse) => {
     });
   }
 };
-*/
 
 const processBroadcastRequest = (message, sendResponse) => {
   if (!message.params) {
@@ -682,13 +736,13 @@ const processSendRxdResponse = (response) => {
 };
 
 const processTransferTokenResponse = (response) => {
-  if (!responseCallbackForTransferTokenRequest) throw Error('Missing callback!');
+  if (!responseCallbackForTransferTokenRequest) return true;
   try {
-    responseCallbackForTransferTokenRequest({
-      type: 'transferToken',
-      success: true,
-      data: response?.txid,
-    });
+    responseCallbackForTransferTokenRequest(
+      response?.cancelled
+        ? { type: 'transferToken', success: false, error: 'User cancelled' }
+        : { type: 'transferToken', success: true, data: { txid: response?.txid } },
+    );
   } catch (error) {
     responseCallbackForTransferTokenRequest({
       type: 'transferToken',
@@ -698,7 +752,7 @@ const processTransferTokenResponse = (response) => {
   } finally {
     responseCallbackForTransferTokenRequest = null;
     popupWindowId = null;
-    chrome.storage.local.remove(['transferTokenRequest', 'popupWindowId']);
+    chrome.storage.local.remove(['transferTokenRequest', 'transferTokenSuccess', 'popupWindowId']);
   }
 
   return true;

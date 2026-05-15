@@ -19,7 +19,8 @@ import { putFile } from '../utils/opfs';
 import { FEE_PER_BYTE, P2PKH_INPUT_SIZE } from '../utils/constants';
 import { unspentDiff } from '../utils/utxo';
 import { retrieveKeys, verifyPassword } from '../utils/crypto';
-import { rxdAddress } from '../signals';
+import { getKeys as getSessionKeys } from '../utils/keyring';
+import { locked, rxdAddress } from '../signals';
 import mime from 'mime';
 
 export interface TokenData {
@@ -230,9 +231,14 @@ export const useRadiantTokens = () => {
 
   const sendFt = async (token: Token, receiveAddress: string, amount: bigint, password: string) => {
     try {
-      const isAuthenticated = await verifyPassword(password);
-      if (!isAuthenticated) {
-        return { error: 'invalid-password' };
+      // When the wallet is already unlocked the keys are cached in session storage —
+      // skip password re-verification and use the cached keys directly.
+      const walletUnlocked = !locked.value;
+      if (!walletUnlocked) {
+        const isAuthenticated = await verifyPassword(password);
+        if (!isAuthenticated) {
+          return { error: 'invalid-password' };
+        }
       }
 
       const tokenUtxos = await db.utxo.where({ tokenId: token.id }).toArray();
@@ -245,7 +251,7 @@ export const useRadiantTokens = () => {
       const tokenInputs = getInputs(tokenUtxos, amount, 0n, false);
       const totalInputTokens = tokenInputs.reduce((a, item) => a + item.value, 0n);
 
-      const keys = await retrieveKeys(password);
+      const keys = walletUnlocked ? await getSessionKeys() : await retrieveKeys(password);
       if (!keys?.walletWif || !keys.walletPubKey) throw Error('Undefined key');
       const paymentPk = PrivateKey.from_wif(keys.walletWif);
 
@@ -347,12 +353,12 @@ export const useRadiantTokens = () => {
 
         if (tokenChange > 0n) {
           const changeUtxo = { ...tokenInputs[0], txid: txid!, vout: 1, value: BigInt(tokenChange) };
-          db.utxo.put(changeUtxo);
+          await db.utxo.put(changeUtxo);
         }
 
         // Update RXD funding UTXOs
-        db.utxo.bulkDelete(fundingInputs.map((u) => u.id));
-        db.utxo.bulkAdd(newOutputs.map((u) => ({ ...u, txid, type: 'rxd' }) as Utxo));
+        await db.utxo.bulkDelete(fundingInputs.map((u) => u.id));
+        await db.utxo.bulkAdd(newOutputs.map((u) => ({ ...u, txid, type: 'rxd' }) as Utxo));
       });
 
       updateTokenBalances();
