@@ -35,28 +35,47 @@ let responseCallbackForBroadcastRequest;
 let responseCallbackForGetSignaturesRequest;
 let responseCallbackForEncryptRequest;
 let responseCallbackForDecryptRequest;
+let responseCallbackForCreateSwapOfferRequest;
+let responseCallbackForCompleteSwapOfferRequest;
 let popupWindowId: number | undefined | null = null;
 
 const INACTIVITY_LIMIT = 10 * 60 * 1000; // 10 minutes
 
-const launchPopUp = () => {
-  // Open as the extension action popup (appears near the toolbar icon)
-  chrome.action.openPopup().catch(() => {
-    // Fallback for older Chrome: open as a standalone popup window
+const createPopupWindow = () => {
+  const width = 360;
+  const height = 600;
+  chrome.windows.getLastFocused({ populate: false }, (focused) => {
+    if (chrome.runtime.lastError || !focused) {
+      focused = { left: 0, top: 0, width: 1440, height: 900 } as chrome.windows.Window;
+    }
+    const left = Math.round(((focused.width ?? 1440) - width) / 2) + (focused.left ?? 0);
+    const top  = Math.round(((focused.height ?? 900) - height) / 3) + (focused.top ?? 0);
     chrome.windows.create(
-      {
-        url: chrome.runtime.getURL('index.html'),
-        type: 'popup',
-        width: 360,
-        height: 567,
-        focused: true,
-      },
-      (window) => {
-        popupWindowId = window?.id;
-        chrome.storage.local.set({ popupWindowId });
+      { url: chrome.runtime.getURL('index.html'), type: 'popup', width, height, left, top, focused: true },
+      (win) => {
+        if (chrome.runtime.lastError || !win?.id) return;
+        popupWindowId = win.id;
+        chrome.storage.local.set({ popupWindowId: win.id });
+        // Flash taskbar in case Windows blocked the focus steal
+        chrome.windows.update(win.id, { drawAttention: true });
       },
     );
   });
+};
+
+const launchPopUp = () => {
+  if (popupWindowId != null) {
+    chrome.windows.update(popupWindowId, { focused: true, drawAttention: true }, () => {
+      if (chrome.runtime.lastError) {
+        popupWindowId = null;
+        chrome.storage.local.remove('popupWindowId');
+        createPopupWindow();
+      }
+    });
+    return;
+  }
+  // Try action popup first — opens inline near the extension icon, no focus-steal needed
+  chrome.action.openPopup().catch(() => createPopupWindow());
 };
 
 const verifyAccess = async (requestingDomain) => {
@@ -115,6 +134,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     'getSignaturesResponse',
     'encryptResponse',
     'decryptResponse',
+    'createSwapOfferResponse',
+    'completeSwapOfferResponse',
   ];
 
   if (noAuthRequired.includes(message.action)) {
@@ -137,6 +158,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return processEncryptResponse(message);
       case 'decryptResponse':
         return processDecryptResponse(message);
+      case 'createSwapOfferResponse':
+        return processCreateSwapOfferResponse(message);
+      case 'completeSwapOfferResponse':
+        return processCompleteSwapOfferResponse(message);
       default:
         break;
     }
@@ -186,6 +211,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return processGetSocialProfileRequest(sendResponse);
       case 'getPaymentUtxos':
         return processGetPaymentUtxos(sendResponse);
+      case 'createSwapOffer':
+        return processCreateSwapOfferRequest(message, sendResponse);
+      case 'completeSwapOffer':
+        return processCompleteSwapOfferRequest(message, sendResponse);
       case 'getExchangeRate':
         return processGetExchangeRate(sendResponse);
       case 'encrypt':
@@ -195,6 +224,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       default:
         break;
     }
+  }).catch((err) => {
+    sendResponse({ type: message.action, success: false, error: String(err) });
   });
 
   return true;
@@ -896,6 +927,76 @@ const processDecryptResponse = (response) => {
   return true;
 };
 
+const processCreateSwapOfferRequest = (message, sendResponse) => {
+  if (!message.params) {
+    sendResponse({ type: 'createSwapOffer', success: false, error: 'Must provide valid params!' });
+    return;
+  }
+  try {
+    responseCallbackForCreateSwapOfferRequest = sendResponse;
+    chrome.storage.local
+      .set({ createSwapOfferRequest: message.params })
+      .then(() => launchPopUp());
+  } catch (error) {
+    sendResponse({ type: 'createSwapOffer', success: false, error: JSON.stringify(error) });
+  }
+};
+
+const processCompleteSwapOfferRequest = (message, sendResponse) => {
+  if (!message.params) {
+    sendResponse({ type: 'completeSwapOffer', success: false, error: 'Must provide valid params!' });
+    return;
+  }
+  try {
+    responseCallbackForCompleteSwapOfferRequest = sendResponse;
+    chrome.storage.local
+      .set({ completeSwapOfferRequest: message.params })
+      .then(() => launchPopUp());
+  } catch (error) {
+    sendResponse({ type: 'completeSwapOffer', success: false, error: JSON.stringify(error) });
+  }
+};
+
+const processCreateSwapOfferResponse = (response) => {
+  if (!responseCallbackForCreateSwapOfferRequest) return true;
+  try {
+    responseCallbackForCreateSwapOfferRequest(
+      response?.cancelled
+        ? { type: 'createSwapOffer', success: false, error: 'User cancelled' }
+        : response?.error
+          ? { type: 'createSwapOffer', success: false, error: response.error }
+          : { type: 'createSwapOffer', success: true, data: { partialRawtx: response.partialRawtx } },
+    );
+  } catch (error) {
+    responseCallbackForCreateSwapOfferRequest({ type: 'createSwapOffer', success: false, error: JSON.stringify(error) });
+  } finally {
+    responseCallbackForCreateSwapOfferRequest = null;
+    popupWindowId = null;
+    chrome.storage.local.remove(['createSwapOfferRequest', 'popupWindowId']);
+  }
+  return true;
+};
+
+const processCompleteSwapOfferResponse = (response) => {
+  if (!responseCallbackForCompleteSwapOfferRequest) return true;
+  try {
+    responseCallbackForCompleteSwapOfferRequest(
+      response?.cancelled
+        ? { type: 'completeSwapOffer', success: false, error: 'User cancelled' }
+        : response?.error
+          ? { type: 'completeSwapOffer', success: false, error: response.error }
+          : { type: 'completeSwapOffer', success: true, data: { txid: response.txid } },
+    );
+  } catch (error) {
+    responseCallbackForCompleteSwapOfferRequest({ type: 'completeSwapOffer', success: false, error: JSON.stringify(error) });
+  } finally {
+    responseCallbackForCompleteSwapOfferRequest = null;
+    popupWindowId = null;
+    chrome.storage.local.remove(['completeSwapOfferRequest', 'popupWindowId']);
+  }
+  return true;
+};
+
 // HANDLE WINDOW CLOSE *****************************************
 
 chrome.windows.onRemoved.addListener((closedWindowId) => {
@@ -978,6 +1079,26 @@ chrome.windows.onRemoved.addListener((closedWindowId) => {
       });
       responseCallbackForDecryptRequest = null;
       chrome.storage.local.remove('decryptRequest');
+    }
+
+    if (responseCallbackForCreateSwapOfferRequest) {
+      responseCallbackForCreateSwapOfferRequest({
+        type: 'createSwapOffer',
+        success: false,
+        error: 'User dismissed the request!',
+      });
+      responseCallbackForCreateSwapOfferRequest = null;
+      chrome.storage.local.remove('createSwapOfferRequest');
+    }
+
+    if (responseCallbackForCompleteSwapOfferRequest) {
+      responseCallbackForCompleteSwapOfferRequest({
+        type: 'completeSwapOffer',
+        success: false,
+        error: 'User dismissed the request!',
+      });
+      responseCallbackForCompleteSwapOfferRequest = null;
+      chrome.storage.local.remove('completeSwapOfferRequest');
     }
 
     popupWindowId = null;

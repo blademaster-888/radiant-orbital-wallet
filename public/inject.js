@@ -75,6 +75,7 @@ const provider = {
   getTokens: createOrbitalMethod('getTokens'),
   sendRxd: createOrbitalMethod('sendRxd'),
   transferToken: createOrbitalMethod('transferToken'),
+  transferGlyphFt: createOrbitalMethod('transferToken'),
   signMessage: createOrbitalMethod('signMessage'),
   broadcast: createOrbitalMethod('broadcast'),
   getSignatures: createOrbitalMethod('getSignatures'),
@@ -83,6 +84,8 @@ const provider = {
   getExchangeRate: createOrbitalMethod('getExchangeRate'),
   encrypt: createOrbitalMethod('encrypt'),
   decrypt: createOrbitalMethod('decrypt'),
+  createSwapOffer: createOrbitalMethod('createSwapOffer'),
+  completeSwapOffer: createOrbitalMethod('completeSwapOffer'),
 };
 
 window.orbital = provider;

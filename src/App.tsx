@@ -30,6 +30,8 @@ import { DecryptRequest } from './pages/requests/DecryptRequest';
 import { EncryptRequest } from './pages/requests/EncryptRequest';
 import { GetSignaturesRequest } from './pages/requests/GetSignaturesRequest';
 import { SignMessageRequest } from './pages/requests/SignMessageRequest';
+import { CreateSwapOfferRequest, CreateSwapOfferRequestParams } from './pages/requests/CreateSwapOfferRequest';
+import { CompleteSwapOfferRequest, CompleteSwapOfferRequestParams } from './pages/requests/CompleteSwapOfferRequest';
 import { Settings } from './pages/Settings';
 import { ColorThemeProps } from './theme';
 import { storage } from './utils/storage';
@@ -85,6 +87,8 @@ export const App = () => {
   const [messagesToDecrypt, setMessagesToDecrypt] = useState<Web3DecryptRequest | undefined>();
   const [transferTokenRequest, setTransferTokenRequest] = useState<TransferTokenRequestParams | undefined>();
   const [transferTokenKey, setTransferTokenKey] = useState(0);
+  const [createSwapOfferRequest, setCreateSwapOfferRequest] = useState<CreateSwapOfferRequestParams | undefined>();
+  const [completeSwapOfferRequest, setCompleteSwapOfferRequest] = useState<CompleteSwapOfferRequestParams | undefined>();
 
   useActivityDetector();
 
@@ -98,6 +102,8 @@ export const App = () => {
         'sendRxdRequest',
         'connectRequest',
         'popupWindowId',
+        'createSwapOfferRequest',
+        'completeSwapOfferRequest',
         'whitelist',
         'signMessageRequest',
         'signTransactionRequest',
@@ -159,6 +165,14 @@ export const App = () => {
         if (transferTokenRequest) {
           setTransferTokenRequest(transferTokenRequest);
         }
+
+        if (result.createSwapOfferRequest) {
+          setCreateSwapOfferRequest(result.createSwapOfferRequest);
+        }
+
+        if (result.completeSwapOfferRequest) {
+          setCompleteSwapOfferRequest(result.completeSwapOfferRequest);
+        }
       },
     );
   }, [menuContext]);
@@ -183,6 +197,10 @@ export const App = () => {
           setTransferTokenRequest(undefined);
         }
       }
+      if (changes.createSwapOfferRequest?.newValue) setCreateSwapOfferRequest(changes.createSwapOfferRequest.newValue);
+      else if ('createSwapOfferRequest' in changes && !changes.createSwapOfferRequest?.newValue) setCreateSwapOfferRequest(undefined);
+      if (changes.completeSwapOfferRequest?.newValue) setCompleteSwapOfferRequest(changes.completeSwapOfferRequest.newValue);
+      else if ('completeSwapOfferRequest' in changes && !changes.completeSwapOfferRequest?.newValue) setCompleteSwapOfferRequest(undefined);
     };
     chrome.storage.onChanged.addListener(onChanged);
     return () => chrome.storage.onChanged.removeListener(onChanged);
@@ -228,7 +246,9 @@ export const App = () => {
                           !getSignaturesRequest &&
                           !messageToEncrypt &&
                           !messagesToDecrypt &&
-                          !transferTokenRequest
+                          !transferTokenRequest &&
+                          !createSwapOfferRequest &&
+                          !completeSwapOfferRequest
                         }
                         whenFalseContent={
                           <>
@@ -280,6 +300,20 @@ export const App = () => {
                                 request={transferTokenRequest as TransferTokenRequestParams}
                                 popupId={popupId}
                                 onResponse={() => setTransferTokenRequest(undefined)}
+                              />
+                            </Show>
+                            <Show when={!!createSwapOfferRequest}>
+                              <CreateSwapOfferRequest
+                                request={createSwapOfferRequest as CreateSwapOfferRequestParams}
+                                popupId={popupId}
+                                onResponse={() => setCreateSwapOfferRequest(undefined)}
+                              />
+                            </Show>
+                            <Show when={!!completeSwapOfferRequest}>
+                              <CompleteSwapOfferRequest
+                                request={completeSwapOfferRequest as CompleteSwapOfferRequestParams}
+                                popupId={popupId}
+                                onResponse={() => setCompleteSwapOfferRequest(undefined)}
                               />
                             </Show>
                           </>
