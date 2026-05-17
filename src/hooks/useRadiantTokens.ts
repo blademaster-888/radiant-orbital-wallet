@@ -419,14 +419,14 @@ export const useRadiantTokens = () => {
       }
       if (!offerToken) return { error: 'offer-token-not-found' };
 
-      // Locate want token in Dexie so we know its electrum-derived ref (avoids
-      // cross-indexer mismatch in the output script the buyer must match).
+      // Locate want token in Dexie for ref consistency. If not in the local DB
+      // (user doesn't hold this token yet), fall back to the converted ref —
+      // the output script only needs the ref bytes, not a local UTXO.
       let wantToken = await db.token.get({ ref: wantDexieRef });
       if (!wantToken && params.wantTokenTicker) {
         const all = await db.token.toArray();
         wantToken = all.find(t => t.ticker.toUpperCase() === params.wantTokenTicker!.toUpperCase());
       }
-      if (!wantToken) return { error: 'want-token-not-found' };
 
       const offerUtxos = await db.utxo.where({ tokenId: offerToken.id }).toArray();
       const totalOffer = offerUtxos.reduce((a, u) => a + u.value, 0n);
@@ -449,8 +449,8 @@ export const useRadiantTokens = () => {
       if (!split.txid || split.error) return { error: split.error || 'pre-split-failed' };
 
       const sellerAddr = rxdAddress.value;
-      const offerRef   = offerToken.ref;   // Dexie format (txid_LE + vout_LE_8hex)
-      const wantRef    = wantToken.ref;    // Dexie format — consistent ref for both wallets
+      const offerRef   = offerToken.ref;          // Dexie format (txid_LE + vout_LE_8hex)
+      const wantRef    = wantToken?.ref ?? wantDexieRef; // prefer Dexie ref; fall back to converted ref
 
       // Build partial transaction
       const tx = new Transaction(1, 0);
