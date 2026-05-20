@@ -1,4 +1,5 @@
 import * as qr from 'qrcode';
+import { logger } from '../logger';
 import { useEffect, useState } from 'react';
 import { styled } from 'styled-components';
 
@@ -22,7 +23,7 @@ export const QrCode = (props: QrCodeProps) => {
     const uri = `bitcoin:${address}`;
     qr.toDataURL(uri, function (err, url) {
       if (err) {
-        console.error(err);
+        logger.error(err);
         return;
       }
       setQrUrl(url);

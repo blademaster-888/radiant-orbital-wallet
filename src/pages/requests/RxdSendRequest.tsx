@@ -1,4 +1,5 @@
 import { validate } from 'bitcoin-address-validation';
+import { logger } from '../../logger';
 import React, { useEffect, useState } from 'react';
 import { styled } from 'styled-components';
 import rxdCoin from '../../assets/rxd-coin.png';
@@ -190,7 +191,7 @@ export const RxdSendRequest = (props: RxdSendRequestProps) => {
         if (popupId) chrome.windows.remove(popupId);
       }, 2000);
     } catch (error) {
-      console.log(error);
+      logger.error(error);
     } finally {
       setIsProcessing(false);
     }

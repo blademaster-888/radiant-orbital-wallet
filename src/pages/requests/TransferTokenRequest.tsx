@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { logger } from '../../logger';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useSignals } from '@preact/signals-react/runtime';
 import { BackButton } from '../../components/BackButton';
@@ -100,11 +101,11 @@ export const TransferTokenRequest = ({ request, popupId, onResponse }: TransferT
       }
       await syncTokens().catch((e: unknown) => {
         const msg = (e as Error)?.message ?? String(e);
-        console.error('[TransferToken] syncTokens failed:', msg, { address: rxdAddress.value, dexieRef });
+        logger.error('[TransferToken] syncTokens failed:', msg, { address: rxdAddress.value, dexieRef });
         setSyncError(msg);
       });
       const allTokens = await db.token.toArray();
-      console.log('[TransferToken] DB tokens after sync:', allTokens.map(t => `${t.ticker}:${t.ref}`));
+      logger.log('[TransferToken] DB tokens after sync:', allTokens.map(t => `${t.ticker}:${t.ref}`));
       setDbTokens(allTokens.map(t => `${t.ticker} ${t.ref.slice(0, 12)}…`));
       setSyncState('done');
     };

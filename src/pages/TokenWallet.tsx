@@ -1,4 +1,5 @@
 import validate from 'bitcoin-address-validation';
+import { logger } from '../logger';
 import { useEffect, useState } from 'react';
 import styled from 'styled-components';
 import { Button } from '../components/Button';
@@ -152,7 +153,7 @@ export const TokenWallet = () => {
   }, [setSelected]);
 
   useEffect(() => {
-    console.log('syncTokens', rxdAddress.value);
+    logger.log('syncTokens', rxdAddress.value);
     syncTokens();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

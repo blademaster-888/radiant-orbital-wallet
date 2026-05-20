@@ -26,3 +26,5 @@ yarn-error.log*
 .cache
 
 public/background.js
+orbital-wallet.zip
+.env

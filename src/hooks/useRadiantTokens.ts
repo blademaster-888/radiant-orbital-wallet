@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { logger } from '../logger';
 import {
   ftScript,
   ftScriptSize,
@@ -131,7 +132,7 @@ export const useRadiantTokens = () => {
 
         try {
           const payload = decode(hexToBytes(match.groups.payload));
-          console.log(payload);
+          logger.log(payload);
           const ticker = payload?.ticker || '';
           const name = payload?.name;
           // Find file
@@ -173,7 +174,7 @@ export const useRadiantTokens = () => {
         // Save to refs map
         refToTokenMap.set(ref, { id, ...token });
       } catch (error) {
-        console.log(error);
+        logger.error(error);
       }
     }
 
@@ -335,14 +336,14 @@ export const useRadiantTokens = () => {
       });
 
       const rawtx = tx.to_hex();
-      console.log(`Tx size ${tx.get_size()} fee ${txFee} fee per byte ${txFee / tx.get_size()}`);
-      console.log('FT rawtx:', rawtx);
+      logger.log(`Tx size ${tx.get_size()} fee ${txFee} fee per byte ${txFee / tx.get_size()}`);
+      logger.log('FT rawtx:', rawtx);
       let txid: string | undefined;
       try {
         txid = await electrum.broadcast(rawtx);
       } catch (broadcastErr: any) {
         const msg = broadcastErr?.message ?? broadcastErr?.toString() ?? 'broadcast-error';
-        console.error('Broadcast rejected:', msg);
+        logger.error('Broadcast rejected:', msg);
         throw new Error(msg);
       }
       if (!txid) throw new Error('broadcast-error');
@@ -474,7 +475,7 @@ export const useRadiantTokens = () => {
 
       return { partialRawtx: tx.to_hex() };
     } catch (err) {
-      console.error('[createSwapOffer]', err);
+      logger.error('[createSwapOffer]', err);
       return { error: (err as Error)?.message ?? 'unknown' };
     }
   };
@@ -638,7 +639,7 @@ export const useRadiantTokens = () => {
       });
 
       const rawtx = tx.to_hex();
-      console.log('[completeSwapOffer] broadcasting', rawtx.slice(0, 40), '...');
+      logger.log('[completeSwapOffer] broadcasting', rawtx.slice(0, 40), '...');
       let txid: string | undefined;
       try {
         txid = await electrum.broadcast(rawtx);
@@ -660,7 +661,7 @@ export const useRadiantTokens = () => {
 
       return { txid };
     } catch (err) {
-      console.error('[completeSwapOffer]', err);
+      logger.error('[completeSwapOffer]', err);
       return { error: (err as Error)?.message ?? 'unknown' };
     }
   };

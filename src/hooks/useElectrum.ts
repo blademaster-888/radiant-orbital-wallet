@@ -1,4 +1,5 @@
 import { P2PKHAddress } from 'rxd-wasm';
+import { logger } from '../logger';
 import { RXD_DECIMAL_CONVERSION } from '../utils/constants';
 import electrum from '../Electrum';
 import { scriptHash } from '../utils/script';
@@ -57,7 +58,7 @@ export const useElectrum = () => {
     try {
       return electrum.getTransaction(txid);
     } catch (error) {
-      console.log(error);
+      logger.error(error);
     }
   };
 
@@ -65,7 +66,7 @@ export const useElectrum = () => {
     try {
       return await electrum.broadcast(txhex);
     } catch (error) {
-      console.error('broadcast rawtx failed:', error);
+      logger.error('broadcast rawtx failed:', error);
     }
   };
 

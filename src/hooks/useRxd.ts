@@ -12,6 +12,7 @@ import {
 } from 'rxd-wasm';
 import { useEffect, useState } from 'react';
 import { SignMessageResponse } from '../pages/requests/SignMessageRequest';
+import { logger } from '../logger';
 import { RXD_DECIMAL_CONVERSION, FEE_PER_BYTE, MAX_BYTES_PER_TX, MAX_FEE_PER_TX } from '../utils/constants';
 import { DerivationTag, getPrivateKeyFromTag, Keys } from '../utils/keys';
 import { getChainParams } from '../utils/network';
@@ -111,7 +112,7 @@ export const useRxd = () => {
 
       const sendAll = totalSats === amount;
       if (sendAll) {
-        console.log(`Sending all ${totalSats}`);
+        logger.log(`Sending all ${totalSats}`);
       }
       const outputSizes = request.map((req) => {
         if (req.address) return p2pkhScriptSize;
@@ -209,8 +210,8 @@ export const useRxd = () => {
 
       const rawtx = tx.to_hex();
       let txid = await broadcastRawTx(rawtx);
-      console.log(rawtx);
-      console.log(`Tx size ${tx.get_size()} fee ${feeSats} fee per byte ${feeSats / tx.get_size()}`);
+      logger.log(rawtx);
+      logger.log(`Tx size ${tx.get_size()} fee ${feeSats} fee per byte ${feeSats / tx.get_size()}`);
       if (txid) {
         if (isBelowNoApprovalLimit) {
           storage.get(['noApprovalLimit'], ({ noApprovalLimit }) => {
@@ -231,7 +232,7 @@ export const useRxd = () => {
 
       return { txid, rawtx };
     } catch (error: any) {
-      console.log(error);
+      logger.error(error);
       return { error: error.message ?? 'unknown' };
     } finally {
       setIsProcessing(false);
@@ -274,7 +275,7 @@ export const useRxd = () => {
         derivationTag,
       };
     } catch (error) {
-      console.log(error);
+      logger.error(error);
     }
   };
 
@@ -292,7 +293,7 @@ export const useRxd = () => {
 
       return address.verify_bitcoin_message(msgBuf, signature);
     } catch (error) {
-      console.error(error);
+      logger.error(error);
       return false;
     }
   };

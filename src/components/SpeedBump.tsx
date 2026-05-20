@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { logger } from '../logger';
 import { styled } from 'styled-components';
 import { useSnackbar } from '../hooks/useSnackbar';
 import { useViewport } from '../hooks/useViewport';
@@ -64,7 +65,7 @@ export const SpeedBump = (props: SpeedBumpProps) => {
 
       onConfirm(password);
     } catch (error) {
-      console.log(error);
+      logger.error(error);
     } finally {
       setIsProcessing(false);
       setPassword('');

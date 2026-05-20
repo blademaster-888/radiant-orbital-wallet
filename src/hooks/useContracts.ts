@@ -1,4 +1,5 @@
 import { PrivateKey, Script, Transaction, TxIn } from 'rxd-wasm';
+import { logger } from '../logger';
 import { useEffect, useState } from 'react';
 import { retrieveKeys, verifyPassword } from '../utils/crypto';
 import { rxdAddress } from '../signals';
@@ -125,7 +126,7 @@ export const useContracts = () => {
       });
       return Promise.resolve({ sigResponses });
     } catch (err: any) {
-      console.error('getSignatures error', err);
+      logger.error('getSignatures error', err);
       return {
         error: {
           message: err.message ?? 'unknown',

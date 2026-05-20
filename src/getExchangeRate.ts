@@ -1,4 +1,5 @@
 import { storage } from './utils/storage';
+import { logger } from './logger';
 
 export const getExchangeRate = async (): Promise<number | undefined> => {
   return new Promise((resolve, reject) => {
@@ -15,7 +16,7 @@ export const getExchangeRate = async (): Promise<number | undefined> => {
           resolve(rate);
         }
       } catch (error) {
-        console.log(error);
+        logger.error(error);
         reject(error);
       }
     });

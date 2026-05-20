@@ -2,8 +2,7 @@
 // @ts-nocheck until this file is migrated to TypeScript
 
 import { db } from './db';
-
-console.log('Orbital Wallet Background Script Running!');
+import { logger } from './logger';
 
 const getExchangeRate = async () => {
   return new Promise((resolve, reject) => {
@@ -20,7 +19,7 @@ const getExchangeRate = async () => {
           resolve(rate);
         }
       } catch (error) {
-        console.log(error);
+        logger.error(error);
         reject(error);
       }
     });
@@ -480,7 +479,7 @@ const processGetExchangeRate = (sendResponse) => {
 const processGetPaymentUtxos = async (sendResponse) => {
   try {
     const paymentUtxos = await db.utxo.where({ type: 'rxd' }).toArray();
-    console.log(paymentUtxos);
+    logger.log(paymentUtxos);
     sendResponse({
       type: 'getPaymentUtxos',
       success: true,
