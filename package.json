@@ -46,7 +46,7 @@
   "scripts": {
     "start": "react-app-rewired start",
     "build": "react-app-rewired build",
-    "worker:build": "npx esbuild src/background.ts --bundle --outfile=public/background.js && copy public\\background.js build\\background.js",
+    "worker:build": "npx esbuild src/background.ts --bundle --define:process.env.REACT_APP_DEBUG=\\\"false\\\" --outfile=public/background.js && copy public\\background.js build\\background.js",
     "test": "react-app-rewired test",
     "eject": "react-app-rewired eject",
     "format": "prettier --write ."
