@@ -141,10 +141,10 @@ export const CompleteSwapOfferRequest = ({ request, popupId, onResponse }: Compl
 
           <div style={{ width: '85%', background: theme.mainBackground, borderRadius: 8, padding: '12px 14px', margin: '8px 0 4px' }}>
             <Text theme={theme} style={{ margin: '4px 0', fontSize: '0.85rem' }}>
-              You receive: <strong>{Number(request.offerAmount).toLocaleString()} {request.offerTokenTicker ?? '?'}</strong>
+              You receive: <strong>{(request.offerTokenTicker === 'RXD' ? Number(request.offerAmount) / 1e8 : Number(request.offerAmount)).toLocaleString()} {request.offerTokenTicker ?? '?'}</strong>
             </Text>
             <Text theme={theme} style={{ margin: '4px 0', fontSize: '0.85rem' }}>
-              You pay: <strong>{Number(request.wantAmount).toLocaleString()} {request.wantTokenTicker ?? '?'}</strong>
+              You pay: <strong>{(request.wantTokenTicker === 'RXD' ? Number(request.wantAmount) / 1e8 : Number(request.wantAmount)).toLocaleString()} {request.wantTokenTicker ?? '?'}</strong>
             </Text>
           </div>
 

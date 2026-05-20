@@ -16,7 +16,8 @@ import { useElectrum } from './useElectrum';
 import { Token, Utxo, db } from '../db';
 import { Outpoint, reverseOutpoint } from '../utils/outpoint';
 import { decode } from 'cbor-x';
-import { hexToBytes } from '@noble/hashes/utils';
+import { hexToBytes, bytesToHex } from '@noble/hashes/utils';
+import { sha256 } from '@noble/hashes/sha256';
 import { putFile } from '../utils/opfs';
 import { FEE_PER_BYTE, P2PKH_INPUT_SIZE } from '../utils/constants';
 import { unspentDiff } from '../utils/utxo';
@@ -524,7 +525,10 @@ export const useRadiantTokens = () => {
       const sellerUtxoOut = prevTxParsed.get_output(sellerVout);
       if (!sellerUtxoOut) return { error: 'invalid-partial-tx' };
       const { ref: offerDexieRef } = parseFtScript(sellerUtxoOut.get_script_pub_key().to_hex());
-      if (!offerDexieRef) return { error: 'invalid-partial-tx' };
+      const isRxdOffer = !offerDexieRef; // seller is offering native RXD, not an FT
+      const sellerLockingScript = isRxdOffer
+        ? sellerUtxoOut.get_script_pub_key()
+        : ftScript(params.sellerAddress, offerDexieRef!);
 
       // Locate buyer's want token by the exact ref from the partial tx
       let wantToken = await db.token.get({ ref: wantRefFromScript });
@@ -554,28 +558,43 @@ export const useRadiantTokens = () => {
 
       // Determine output count for fee calculation
       const hasWantChange = wantChange > 0n;
-      const outputSizes = [
-        ftScriptSize,                         // Output[0]: payment to seller (from partial)
-        ftScriptSize,                         // Output[1]: offer tokens to buyer
-        ...(hasWantChange ? [ftScriptSize] : []),  // Output[2]: want change
-        p2pkhScriptSize,                      // Output[3]: RXD change
-      ];
       const baseSizes = [
         p2pkhScriptSigSize,                   // Input[0]: seller (ANYONECANPAY, already signed)
         ...buyerWantInputs.map(() => p2pkhScriptSigSize),
       ];
 
-      const unfundedFee = txSize(baseSizes, outputSizes) * FEE_PER_BYTE;
-      const fundingUtxos = await getUtxos(buyerAddr);
-      const totalRxd = fundingUtxos.reduce((a, u) => a + Number(u.value), 0);
-      if (totalRxd < unfundedFee) return { error: 'insufficient-funds' };
+      let fundingInputs: Awaited<ReturnType<typeof getUtxos>> = [];
+      let rxdChange = 0;
+      let buyerRxdAmount = 0n;
+      let outputSizes: number[];
 
-      const feePerInput  = BigInt(P2PKH_INPUT_SIZE * FEE_PER_BYTE);
-      const fundingInputs = getInputs(fundingUtxos, unfundedFee, feePerInput, false);
-      const allInputSizes = [...baseSizes, ...fundingInputs.map(() => p2pkhScriptSigSize)];
-      const txFee        = txSize(allInputSizes, outputSizes) * FEE_PER_BYTE;
-      const totalFunding = fundingInputs.reduce((a, u) => a + Number(u.value), 0);
-      const rxdChange    = totalFunding - txFee;
+      if (isRxdOffer) {
+        // Fee comes out of seller's RXD — no separate funding inputs needed
+        outputSizes = [
+          ftScriptSize,                              // Output[0]: payment FT to seller
+          p2pkhScriptSize,                           // Output[1]: RXD to buyer
+          ...(hasWantChange ? [ftScriptSize] : []),  // Output[2]: FT change
+        ];
+        const fee = txSize(baseSizes, outputSizes) * FEE_PER_BYTE;
+        buyerRxdAmount = params.offerAmount - BigInt(fee);
+        if (buyerRxdAmount <= 0n) return { error: 'insufficient-funds' };
+      } else {
+        outputSizes = [
+          ftScriptSize,                              // Output[0]: payment to seller
+          ftScriptSize,                              // Output[1]: offer tokens to buyer
+          ...(hasWantChange ? [ftScriptSize] : []),  // Output[2]: want change
+          p2pkhScriptSize,                           // Output[3]: RXD change
+        ];
+        const unfundedFee = txSize(baseSizes, outputSizes) * FEE_PER_BYTE;
+        const fundingUtxos = await getUtxos(buyerAddr);
+        const totalRxd = fundingUtxos.reduce((a, u) => a + Number(u.value), 0);
+        if (totalRxd < unfundedFee) return { error: 'insufficient-funds' };
+        const feePerInput = BigInt(P2PKH_INPUT_SIZE * FEE_PER_BYTE);
+        fundingInputs = getInputs(fundingUtxos, unfundedFee, feePerInput, false);
+        const allInputSizes = [...baseSizes, ...fundingInputs.map(() => p2pkhScriptSigSize)];
+        const txFee = txSize(allInputSizes, outputSizes) * FEE_PER_BYTE;
+        rxdChange = fundingInputs.reduce((a, u) => a + Number(u.value), 0) - txFee;
+      }
 
       // Build the complete transaction
       const tx = new Transaction(1, 0);
@@ -588,7 +607,7 @@ export const useRadiantTokens = () => {
         sellerInputRaw.get_unlocking_script(),
       );
       sellerTxIn.set_satoshis(params.offerAmount);
-      sellerTxIn.set_locking_script(ftScript(params.sellerAddress, offerDexieRef));
+      sellerTxIn.set_locking_script(sellerLockingScript);
       tx.add_input(sellerTxIn);
       tx.set_input(0, sellerTxIn);
 
@@ -603,8 +622,12 @@ export const useRadiantTokens = () => {
 
       // Output[0]: payment to seller (carried from partial tx)
       tx.add_output(paymentOutput);
-      // Output[1]: seller's tokens to buyer
-      tx.add_output(new TxOut(params.offerAmount, ftScript(buyerAddr, offerDexieRef)));
+      // Output[1]: offer tokens/RXD to buyer
+      if (isRxdOffer) {
+        tx.add_output(new TxOut(buyerRxdAmount, p2pkh));
+      } else {
+        tx.add_output(new TxOut(params.offerAmount, ftScript(buyerAddr, offerDexieRef!)));
+      }
       // Output[2]: buyer's want token change (if any)
       if (hasWantChange) tx.add_output(new TxOut(wantChange, ftScript(buyerAddr, wantToken!.ref)));
 
@@ -640,21 +663,24 @@ export const useRadiantTokens = () => {
 
       const rawtx = tx.to_hex();
       logger.log('[completeSwapOffer] broadcasting', rawtx.slice(0, 40), '...');
-      let txid: string | undefined;
       try {
-        txid = await electrum.broadcast(rawtx);
+        await electrum.broadcast(rawtx);
       } catch (err: any) {
         throw new Error(err?.message ?? 'broadcast-error');
       }
-      if (!txid) throw new Error('broadcast-error');
+      // Compute txid ourselves — some electrum servers return the raw tx instead of the txid
+      const rawBytes = hexToBytes(rawtx);
+      const txid = bytesToHex(sha256(sha256(rawBytes)).reverse());
 
       // Update buyer's Dexie — remove spent UTXOs; new tokens appear on next sync
       await db.transaction('rw', db.utxo, async () => {
         await db.utxo.bulkDelete(buyerWantInputs.map(u => u.id));
-        await db.utxo.bulkDelete(fundingInputs.map(u => u.id));
-        if (rxdChange > 0) {
-          const changeVout = hasWantChange ? 3 : 2;
-          await db.utxo.add({ txid, vout: changeVout, value: BigInt(rxdChange), type: 'rxd' } as any);
+        if (!isRxdOffer) {
+          await db.utxo.bulkDelete(fundingInputs.map(u => u.id));
+          if (rxdChange > 0) {
+            const changeVout = hasWantChange ? 3 : 2;
+            await db.utxo.add({ txid, vout: changeVout, value: BigInt(rxdChange), type: 'rxd' } as any);
+          }
         }
       });
       updateTokenBalances();
