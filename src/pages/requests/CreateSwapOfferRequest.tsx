@@ -138,10 +138,10 @@ export const CreateSwapOfferRequest = ({ request, popupId, onResponse }: CreateS
 
           <div style={{ width: '85%', background: theme.mainBackground, borderRadius: 8, padding: '12px 14px', margin: '8px 0 4px' }}>
             <Text theme={theme} style={{ margin: '4px 0', fontSize: '0.85rem' }}>
-              You offer: <strong>{Number(request.offerAmount).toLocaleString()} {request.offerTokenTicker ?? '?'}</strong>
+              You offer: <strong>{(request.offerTokenTicker === 'RXD' ? Number(request.offerAmount) / 1e8 : Number(request.offerAmount)).toLocaleString()} {request.offerTokenTicker ?? '?'}</strong>
             </Text>
             <Text theme={theme} style={{ margin: '4px 0', fontSize: '0.85rem' }}>
-              You want: <strong>{Number(request.wantAmount).toLocaleString()} {request.wantTokenTicker ?? '?'}</strong>
+              You want: <strong>{(request.wantTokenTicker === 'RXD' ? Number(request.wantAmount) / 1e8 : Number(request.wantAmount)).toLocaleString()} {request.wantTokenTicker ?? '?'}</strong>
             </Text>
           </div>
 
