@@ -404,14 +404,15 @@ export const useRadiantTokens = () => {
     offerTokenRef: string;     // "txid_BE:vout_decimal" from the market
     offerTokenTicker?: string;
     offerAmount: bigint;
-    wantTokenRef: string;      // "txid_BE:vout_decimal" from the market
+    wantTokenRef: string;      // "txid_BE:vout_decimal" from the market, or "rxd" for native RXD
     wantTokenTicker?: string;
     wantAmount: bigint;
     password: string;
   }): Promise<{ partialRawtx: string } | { error: string }> => {
     try {
+      const isWantRxd     = params.wantTokenRef === 'rxd';
       const offerDexieRef = colonToRef(params.offerTokenRef);
-      const wantDexieRef  = colonToRef(params.wantTokenRef);
+      const wantDexieRef  = isWantRxd ? '' : colonToRef(params.wantTokenRef);
 
       // Locate offer token in Dexie (with ticker fallback for cross-indexer refs)
       let offerToken = await db.token.get({ ref: offerDexieRef });
@@ -424,10 +425,14 @@ export const useRadiantTokens = () => {
       // Locate want token in Dexie for ref consistency. If not in the local DB
       // (user doesn't hold this token yet), fall back to the converted ref —
       // the output script only needs the ref bytes, not a local UTXO.
-      let wantToken = await db.token.get({ ref: wantDexieRef });
-      if (!wantToken && params.wantTokenTicker) {
-        const all = await db.token.toArray();
-        wantToken = all.find(t => t.ticker.toUpperCase() === params.wantTokenTicker!.toUpperCase());
+      // Skip entirely when the seller wants native RXD ("rxd" sentinel).
+      let wantToken: Token | undefined;
+      if (!isWantRxd) {
+        wantToken = await db.token.get({ ref: wantDexieRef });
+        if (!wantToken && params.wantTokenTicker) {
+          const all = await db.token.toArray();
+          wantToken = all.find(t => t.ticker.toUpperCase() === params.wantTokenTicker!.toUpperCase());
+        }
       }
 
       const offerUtxos = await db.utxo.where({ tokenId: offerToken.id }).toArray();
@@ -464,8 +469,14 @@ export const useRadiantTokens = () => {
       tx.add_input(sellerTxIn);
       tx.set_input(0, sellerTxIn);
 
-      // Output[0]: payment to seller — committed by ANYONECANPAY|SINGLE signature
-      tx.add_output(new TxOut(params.wantAmount, ftScript(sellerAddr, wantRef)));
+      // Output[0]: payment to seller — committed by ANYONECANPAY|SINGLE signature.
+      // When the seller wants native RXD use a P2PKH script; otherwise FT locking script.
+      if (isWantRxd) {
+        const sellerP2pkh = P2PKHAddress.from_string(sellerAddr).get_locking_script();
+        tx.add_output(new TxOut(params.wantAmount, sellerP2pkh));
+      } else {
+        tx.add_output(new TxOut(params.wantAmount, ftScript(sellerAddr, wantRef)));
+      }
 
       // Sign Input[0] with SIGHASH_SINGLE|ANYONECANPAY|FORKID (195)
       const sig = tx.sign(privKey, SIGHASH_SWAP_OFFER, 0, ftScript(sellerAddr, offerRef), params.offerAmount);
