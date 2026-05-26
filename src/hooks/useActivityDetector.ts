@@ -13,10 +13,11 @@ export const useActivityDetector = () => {
       storage.set({ lastActiveTime: timestamp });
     };
 
-    document.addEventListener('mousemove', handleActivity);
+    const events = ['mousemove', 'keydown', 'touchstart', 'scroll'] as const;
+    events.forEach((e) => document.addEventListener(e, handleActivity));
 
     return () => {
-      document.removeEventListener('mousemove', handleActivity);
+      events.forEach((e) => document.removeEventListener(e, handleActivity));
     };
   }, []);
 };

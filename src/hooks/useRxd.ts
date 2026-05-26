@@ -13,7 +13,7 @@ import {
 import { useEffect, useState } from 'react';
 import { SignMessageResponse } from '../pages/requests/SignMessageRequest';
 import { logger } from '../logger';
-import { RXD_DECIMAL_CONVERSION, FEE_PER_BYTE, MAX_BYTES_PER_TX, MAX_FEE_PER_TX } from '../utils/constants';
+import { RXD_DECIMAL_CONVERSION, FEE_PER_BYTE, MAX_BYTES_PER_TX, MAX_FEE_PER_TX, P2PKH_INPUT_SIZE, P2PKH_OUTPUT_SIZE } from '../utils/constants';
 import { DerivationTag, getPrivateKeyFromTag, Keys } from '../utils/keys';
 import { getChainParams } from '../utils/network';
 import { storage } from '../utils/storage';
@@ -72,7 +72,7 @@ export const useRxd = () => {
   const [rxdBalance, setRxdBalance] = useState(0);
   const [exchangeRate, setExchangeRate] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
-  const { broadcastRawTx, getUtxos, getRxdBalance, getInputs } = useElectrum();
+  const { broadcastRawTx, getUtxos, getRxdBalance, getInputs, getRawTxById } = useElectrum();
 
   const sendRxd = async (
     request: Web3SendRxdRequest,
@@ -313,44 +313,54 @@ export const useRxd = () => {
     if (!isAuthenticated) {
       return { error: 'invalid-password' };
     }
-    return { error: '' };
-    // TODO
 
-    /*
-    const keys = await retrieveKeys(password);
-    if (!keys.walletWif) throw new Error('Missing keys');
+    const keys = (await retrieveKeys(password)) as Keys;
+    if (!keys.walletWif) return { error: 'missing-keys' };
     const paymentPk = PrivateKey.from_wif(keys.walletWif);
+    const p2pkh = P2PKHAddress.from_string(rxdAddress.value).get_locking_script();
 
-    let satsIn = 0;
-    let satsOut = 0;
+    let satsIn = 0n;
+    let satsOut = 0n;
     const tx = Transaction.from_hex(rawtx);
-    let inputCount = tx.get_ninputs();
-    for (let i = 0; i < inputCount; i++) {
+    const existingInputCount = tx.get_ninputs();
+
+    for (let i = 0; i < existingInputCount; i++) {
       const txIn = tx.get_input(i);
-      const txOut = await getTxOut(txIn!.get_prev_tx_id_hex(), txIn!.get_vout());
-      satsIn += Number(txOut!.get_satoshis());
+      if (!txIn) continue;
+      const prevRawtx = await getRawTxById(txIn.get_prev_tx_id_hex());
+      if (!prevRawtx) return { error: 'could-not-fetch-inputs' };
+      const prevTx = Transaction.from_hex(prevRawtx);
+      const prevOut = prevTx.get_output(txIn.get_vout());
+      if (!prevOut) return { error: 'invalid-input' };
+      satsIn += prevOut.get_satoshis() ?? 0n;
     }
+
     for (let i = 0; i < tx.get_noutputs(); i++) {
-      satsOut += Number(tx.get_output(i)!.get_satoshis()!);
+      satsOut += tx.get_output(i)?.get_satoshis() ?? 0n;
     }
+
     let size = rawtx.length / 2 + P2PKH_OUTPUT_SIZE;
     let fee = Math.ceil(size * FEE_PER_BYTE);
-    const fundingUtxos = await getUtxos(rxdAddress);
-    while (satsIn < satsOut + fee) {
-      const utxo = fundingUtxos.pop();
-      if (!utxo) throw Error('Insufficient funds');
-      const txIn = new TxIn(Buffer.from(utxo.txid, 'hex'), utxo.vout, Script.from_hex(''));
+    const fundingUtxos = await getUtxos(rxdAddress.value);
+    const utxoQueue = [...fundingUtxos];
+    let addedInputCount = existingInputCount;
+
+    while (satsIn < satsOut + BigInt(fee)) {
+      const utxo = utxoQueue.shift();
+      if (!utxo) return { error: 'insufficient-funds' };
+      const txIn = new TxIn(hexToBytes(utxo.txid), utxo.vout, Script.from_hex(''));
+      txIn.set_satoshis(utxo.value);
       tx.add_input(txIn);
-      satsIn += Number(utxo.satoshis);
+      satsIn += utxo.value;
       size += P2PKH_INPUT_SIZE;
       fee = Math.ceil(size * FEE_PER_BYTE);
-      const sig = tx.sign(paymentPk, SigHash.Input, inputCount, Script.from_hex(utxo.script), BigInt(utxo.satoshis));
+      const sig = tx.sign(paymentPk, SigHash.InputOutputs, addedInputCount, p2pkh, utxo.value);
       txIn.set_unlocking_script(Script.from_asm_string(`${sig.to_hex()} ${paymentPk.to_public_key().to_hex()}`));
-      tx.set_input(inputCount++, txIn);
+      tx.set_input(addedInputCount++, txIn);
     }
-    tx.add_output(new TxOut(BigInt(satsIn - satsOut - fee), P2PKHAddress.from_string(rxdAddress).get_locking_script()));
+
+    tx.add_output(new TxOut(satsIn - satsOut - BigInt(fee), p2pkh));
     return { rawtx: tx.to_hex() };
-    */
   };
 
   useEffect(() => {
@@ -371,6 +381,7 @@ export const useRxd = () => {
     signMessage,
     verifyMessage,
     fundRawTx,
+    broadcastRawTx,
     retrieveKeys,
     getChainParams,
   };

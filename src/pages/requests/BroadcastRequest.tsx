@@ -33,7 +33,7 @@ export const BroadcastRequest = (props: BroadcastRequestProps) => {
   const { addSnackbar, message } = useSnackbar();
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [satsOut, setSatsOut] = useState(0);
-  const { isProcessing, setIsProcessing, updateRxdBalance, fundRawTx } = useRxd();
+  const { isProcessing, setIsProcessing, updateRxdBalance, fundRawTx, broadcastRawTx } = useRxd();
 
   useEffect(() => {
     setSelected('rxd');
@@ -105,17 +105,14 @@ export const BroadcastRequest = (props: BroadcastRequestProps) => {
       }
       rawtx = res.rawtx;
     }
-    //const { txid, message } = await broadcastWithGorillaPool(rawtx);
-    // FIXME
-    const txid = '';
-    const message = '';
+    const txid = await broadcastRawTx(rawtx);
     if (!txid) {
       addSnackbar('Error broadcasting the raw tx!', 'error');
       setIsProcessing(false);
 
       chrome.runtime.sendMessage({
         action: 'broadcastResponse',
-        error: message ?? 'Unknown error',
+        error: 'Broadcast failed',
       });
 
       setTimeout(() => {

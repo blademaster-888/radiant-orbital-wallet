@@ -88,7 +88,11 @@ export const useContracts = () => {
       };
 
       const tx = Transaction.from_hex(request.rawtx);
+      const numInputs = tx.get_ninputs();
       const sigResponses: SignatureResponse[] = request.sigRequests.flatMap((sigReq) => {
+        if (sigReq.inputIndex < 0 || sigReq.inputIndex >= numInputs) {
+          throw new Error('invalid-input-index', { cause: sigReq.inputIndex });
+        }
         const privkeys = getPrivKeys(sigReq.address);
 
         return privkeys.map((privKey: PrivateKey) => {

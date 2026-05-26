@@ -3,6 +3,7 @@
 
 import { db } from './db';
 import { logger } from './logger';
+import { INACTIVITY_LIMIT } from './utils/constants';
 
 const getExchangeRate = async () => {
   return new Promise((resolve, reject) => {
@@ -38,7 +39,6 @@ let responseCallbackForCreateSwapOfferRequest;
 let responseCallbackForCompleteSwapOfferRequest;
 let popupWindowId: number | undefined | null = null;
 
-const INACTIVITY_LIMIT = 10 * 60 * 1000; // 10 minutes
 
 const createPopupWindow = () => {
   const width = 360;
@@ -118,12 +118,23 @@ chrome.runtime.onConnect.addListener((port) => {
 
 // MESSAGE LISTENER
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Messages from extension pages (popup) have no sender.tab.
+  // Messages relayed by content scripts (which web pages can influence) do have sender.tab.
+  const isExtensionPage = !sender.tab;
+
+  // Internal events forwarded to tabs — must originate from the extension itself
   if (['signedOut', 'networkChanged'].includes(message.action)) {
+    if (!isExtensionPage) return;
     return emitEventToActiveTabs(message);
   }
 
-  const noAuthRequired = [
-    'isConnected',
+  // isConnected is open to any origin (content scripts relay it from dapps)
+  if (message.action === 'isConnected') {
+    return processIsConnectedRequest(message, sendResponse);
+  }
+
+  // Response messages are sent by the extension popup, not by web pages
+  const internalResponseActions = [
     'userConnectResponse',
     'sendRxdResponse',
     'transferTokenResponse',
@@ -137,10 +148,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     'completeSwapOfferResponse',
   ];
 
-  if (noAuthRequired.includes(message.action)) {
+  if (internalResponseActions.includes(message.action)) {
+    if (!isExtensionPage) return;
     switch (message.action) {
-      case 'isConnected':
-        return processIsConnectedRequest(message, sendResponse);
       case 'userConnectResponse':
         return processConnectResponse(message);
       case 'sendRxdResponse':
@@ -164,7 +174,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       default:
         break;
     }
-
     return;
   }
 
@@ -325,8 +334,8 @@ const processIsConnectedRequest = (message, sendResponse) => {
   } catch (error) {
     sendResponse({
       type: 'isConnected',
-      success: true, // This is true in the catch because we want to return a boolean
-      error: false,
+      success: true,
+      data: false,
     });
   }
 

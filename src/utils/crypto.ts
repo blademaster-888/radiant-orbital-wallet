@@ -36,7 +36,7 @@ export const encrypt = async (data: Uint8Array, derivedKey: Uint8Array) => {
       {
         name: 'AES-CTR',
         counter: iv,
-        length: 64,
+        length: 128,
       },
       importedKey,
       data,
@@ -95,6 +95,7 @@ export const verifyPassword = (password: string): Promise<boolean> => {
         if (mac === result.mac) {
           resolve(true);
         } else {
+          await new Promise<void>((r) => setTimeout(r, 500));
           reject(new Error('Incorrect password'));
         }
       } catch (error) {

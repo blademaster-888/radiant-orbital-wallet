@@ -23,7 +23,7 @@ const mockStorage = (store: globalThis.Storage): Storage => ({
     if (typeof keyOrKeys === 'string') {
       const value = store.getItem(keyOrKeys);
       if (typeof value === 'string') {
-        if ((value.startsWith('"') && value.startsWith('"')) || (value.startsWith('{') && value.startsWith('}'))) {
+        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith('{') && value.endsWith('}'))) {
           result[keyOrKeys] = JSON.parse(value);
         } else {
           result[keyOrKeys] = value;

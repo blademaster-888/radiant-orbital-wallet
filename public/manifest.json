@@ -3,7 +3,7 @@
   "manifest_version": 3,
   "name": "Orbital Wallet",
   "description": "A non-custodial and open-source wallet for Radiant",
-  "permissions": ["storage", "unlimitedStorage"],
+  "permissions": ["storage", "unlimitedStorage", "tabs"],
   "action": {
     "default_popup": "index.html",
     "default_title": "Orbital Wallet",

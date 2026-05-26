@@ -4,7 +4,7 @@ import { Keys } from './keys';
 import { session, storage } from './storage';
 
 export async function unlock(password: string, timeoutMinutes = 30): Promise<boolean> {
-  const timeout = new Date().getTime() + timeoutMinutes * 6000;
+  const timeout = new Date().getTime() + timeoutMinutes * 60000;
   try {
     const keys = await retrieveKeys(password);
     session.set({ keys, timeout });
