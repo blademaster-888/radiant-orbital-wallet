@@ -1,8 +1,14 @@
-# Orbital Wallet | Non-Custodial Web3 Wallet For RXD
+<div align="center">
+  <img src="public/icons/icon192.png" width="96" alt="Orbital Wallet" />
+  <h1>Orbital Wallet</h1>
+  <p>Non-custodial Web3 wallet for Radiant (RXD) and Glyph tokens</p>
+</div>
 
-Orbital Wallet is an open-source and non-custodial web3 wallet for Radiant (RXD) and Glyph tokens. This wallet allows users to have full control over their funds, providing security and independence in managing their assets.
+---
 
-This is a work in progress.
+Orbital Wallet is an open-source, non-custodial browser extension wallet for Radiant (RXD) and Glyph tokens. Users retain full control over their keys and funds at all times.
+
+> Work in progress.
 
 # Run
 
