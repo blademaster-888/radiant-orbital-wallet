@@ -3,9 +3,12 @@ import { logger } from '../logger';
 import {
   ftScript,
   ftScriptSize,
+  nftScript,
+  nftScriptSize,
+  parseFtScript,
+  parseNftScript,
   p2pkhScriptSigSize,
   p2pkhScriptSize,
-  parseFtScript,
   scriptHash,
   txSize,
   zeroRef,
@@ -198,38 +201,150 @@ export const useRadiantTokens = () => {
   };
 
   const updateTokenBalances = () => {
-    // Update balances
     return db.transaction('rw', db.utxo, db.token, async () => {
-      // Get all token ids to keep track of which tokens don't get updated
       const tokenIds = new Set((await db.token.toCollection().primaryKeys()) as number[]);
 
-      // Calculate balances for all tokens
-      const balances = Array.from(
+      // FT balances: sum token units across UTXOs
+      const ftBalances = Array.from(
         (await db.utxo.where({ type: 'ft' }).toArray()).reduce(
           (sum, { tokenId, value }) => sum.set(tokenId as number, (sum.get(tokenId as number) || 0n) + value),
           new Map<number, bigint>(),
         ),
       );
 
-      // Update balances
+      // NFT balances: count of UTXOs (0 = gone, 1 = owned)
+      const nftBalances = Array.from(
+        (await db.utxo.where({ type: 'nft' }).toArray()).reduce(
+          (sum, { tokenId }) => sum.set(tokenId as number, (sum.get(tokenId as number) || 0n) + 1n),
+          new Map<number, bigint>(),
+        ),
+      );
+
+      const allBalances = [...ftBalances, ...nftBalances];
+
       db.token.bulkUpdate(
-        balances.map(([key, balance]) => {
+        allBalances.map(([key, balance]) => {
           tokenIds.delete(key);
-          return {
-            key,
-            changes: { balance },
-          };
+          return { key, changes: { balance } };
         }),
       );
 
-      // Any remaining token ids must have zero balance
       db.token.bulkDelete(Array.from(tokenIds.keys()));
     });
   };
 
+  // Sync NFT (singleton) UTXOs for the current address
+  const syncNftUtxos = async (nftHash: string) => {
+    const unspent = await electrum.listUnspent(nftHash);
+    const { newUnspent, spent } = await unspentDiff(unspent, 'nft');
+    await db.utxo.bulkDelete(spent);
+
+    const newRefSet = new Set<string>();
+    const refToTokenMap = new Map<string, Token>();
+    const refsLE = new Map<ElectrumUtxo, string>();
+
+    for (const utxo of newUnspent) {
+      const firstRef = utxo.refs[0];
+      if (!firstRef || firstRef.type !== 'singleton') continue;
+
+      const op = Outpoint.fromUTXO(firstRef.ref.slice(0, 64), parseInt(firstRef.ref.slice(65), 10));
+      const ref = op.reverse().toString();
+      refsLE.set(utxo, ref);
+
+      const token = await db.token.get({ ref });
+      if (token) {
+        refToTokenMap.set(ref, token);
+      } else {
+        newRefSet.add(ref);
+      }
+    }
+
+    const newRefs = Array.from(newRefSet);
+
+    const refRevealTxIds = await batchRequests<string, string | undefined>(newRefs, 3, async (ref) => {
+      const result = await electrum.getRef(reverseOutpoint(ref));
+      return [ref, result[0]?.tx_hash];
+    });
+
+    const revealTxIds = Array.from(new Set(Object.values(refRevealTxIds) as string[]));
+
+    const revealTxs = await batchRequests<string, Transaction | undefined>(revealTxIds, 3, async (txid) => {
+      const hex = await electrum.getTransaction(txid);
+      return [txid, hex ? Transaction.from_hex(hex) : undefined];
+    });
+
+    const payloads = newRefs
+      .map((ref) => {
+        const txid = refRevealTxIds[ref];
+        const reveal = txid && revealTxs[txid];
+        if (!reveal) return [ref, undefined];
+
+        const index = Buffer.from(ref.substring(64), 'hex').readInt32LE();
+        const script = reveal.get_input(index)?.get_unlocking_script();
+        if (!script) return [ref, undefined];
+
+        const match = script.to_asm_string().match(/(^| )676c79 (?<payload>[0-9A-Fa-f]+)($| )/);
+        if (!match?.groups?.payload) return [ref, undefined];
+
+        try {
+          const payload = decode(hexToBytes(match.groups.payload));
+          const name = payload?.name ?? '';
+          const ticker = payload?.ticker ?? '';
+          let file = undefined;
+          const embed = payload?.main as GlyphEmbed;
+          if (embed?.b instanceof Uint8Array && embed.b.byteLength <= 1000000 && isKnownEmbed(embed.t)) {
+            file = embed;
+          }
+          return [ref, { name, ticker, file }];
+        } catch {
+          return [ref, undefined];
+        }
+      })
+      .filter(([, p]) => p !== undefined) as [string, { name: string; ticker: string; file?: GlyphEmbed }][];
+
+    for (const [ref, payload] of payloads) {
+      if (!payload) continue;
+      const fileExt = payload.file?.t ? mime.getExtension(payload.file.t) : '';
+      const token: Token = {
+        name: payload.name,
+        ref,
+        ticker: payload.ticker,
+        type: 'nft' as const,
+        balance: 1n,
+        fileExt: fileExt || '',
+      };
+      if (payload.file) {
+        await putFile('icon', `${ref}.${fileExt}`, payload.file.b);
+      }
+      try {
+        const id = await db.token.put(token);
+        refToTokenMap.set(ref, { id, ...token });
+      } catch (error) {
+        logger.error(error);
+      }
+    }
+
+    for (const unspent of newUnspent) {
+      const ref = refsLE.get(unspent);
+      const tokenId = ref && refToTokenMap.get(ref)?.id;
+      if (tokenId) {
+        await db.utxo.put({
+          type: 'nft',
+          txid: unspent.tx_hash,
+          vout: unspent.tx_pos,
+          value: BigInt(unspent.value),
+          tokenId,
+        });
+      }
+    }
+
+    updateTokenBalances();
+  };
+
   const syncTokens = async () => {
-    const ftScriptHash = scriptHash(ftScript(rxdAddress.value, zeroRef).to_hex());
-    await syncUtxos(ftScriptHash);
+    const ftHash  = scriptHash(ftScript(rxdAddress.value, zeroRef).to_hex());
+    const nftHash = scriptHash(nftScript(rxdAddress.value, zeroRef).to_hex());
+    await Promise.all([syncUtxos(ftHash), syncNftUtxos(nftHash)]);
   };
 
   const sendFt = async (token: Token, receiveAddress: string, amount: bigint, password: string) => {
@@ -373,6 +488,361 @@ export const useRadiantTokens = () => {
     }
   };
   const getTokenPriceInSats = () => {};
+
+  // Transfer an NFT singleton to another address
+  const sendNft = async (token: Token, receiveAddress: string, password: string) => {
+    try {
+      const walletUnlocked = !locked.value;
+      if (!walletUnlocked) {
+        const ok = await verifyPassword(password);
+        if (!ok) return { error: 'invalid-password' };
+      }
+
+      const nftUtxo = await db.utxo.where({ tokenId: token.id }).first();
+      if (!nftUtxo) return { error: 'insufficient-funds' };
+
+      const keys = walletUnlocked ? await getSessionKeys() : await retrieveKeys(password);
+      if (!keys?.walletWif || !keys.walletPubKey) throw new Error('Undefined key');
+      const privKey = PrivateKey.from_wif(keys.walletWif);
+
+      const senderAddr = rxdAddress.value;
+      const nftRef = token.ref;
+      const nftSatoshis = nftUtxo.value;
+
+      const outputSizes = [nftScriptSize, p2pkhScriptSize];
+      const inputSizes  = [p2pkhScriptSigSize, p2pkhScriptSigSize]; // nft + rxd fee
+
+      const fundingUtxos = await getUtxos(senderAddr);
+      const unfundedFee = txSize([p2pkhScriptSigSize], outputSizes) * FEE_PER_BYTE;
+      const totalRxd = fundingUtxos.reduce((a: number, u: Utxo) => a + Number(u.value), 0);
+      if (totalRxd < unfundedFee) return { error: 'insufficient-funds' };
+
+      const feePerInput = BigInt(P2PKH_INPUT_SIZE * FEE_PER_BYTE);
+      const fundingInputs = getInputs(fundingUtxos, unfundedFee, feePerInput, false);
+      const allInputSizes = [p2pkhScriptSigSize, ...fundingInputs.map(() => p2pkhScriptSigSize)];
+      const txFee = txSize(allInputSizes, outputSizes) * FEE_PER_BYTE;
+      const rxdChange = fundingInputs.reduce((a, u) => a + Number(u.value), 0) - txFee;
+
+      const p2pkh = P2PKHAddress.from_string(senderAddr).get_locking_script();
+      const tx = new Transaction(1, 0);
+
+      // Input[0]: NFT UTXO
+      const nftTxIn = new TxIn(hexToBytes(nftUtxo.txid), nftUtxo.vout, Script.from_hex(''));
+      nftTxIn.set_satoshis(nftSatoshis);
+      nftTxIn.set_locking_script(nftScript(senderAddr, nftRef));
+      tx.add_input(nftTxIn);
+      tx.set_input(0, nftTxIn);
+
+      // Output[0]: NFT to recipient
+      tx.add_output(new TxOut(nftSatoshis, nftScript(receiveAddress, nftRef)));
+      // Output[1]: RXD change
+      if (rxdChange > 0) tx.add_output(new TxOut(BigInt(rxdChange), p2pkh));
+
+      // RXD funding inputs
+      fundingInputs.forEach((u, i) => {
+        const txIn = new TxIn(hexToBytes(u.txid), u.vout, Script.from_hex(''));
+        txIn.set_satoshis(BigInt(u.value));
+        tx.add_input(txIn);
+        tx.set_input(1 + i, txIn);
+      });
+
+      // Sign NFT input
+      const nftSig = tx.sign(privKey, SigHash.InputsOutputs, 0, nftScript(senderAddr, nftRef), nftSatoshis);
+      nftTxIn.set_unlocking_script(Script.from_asm_string(`${nftSig.to_hex()} ${privKey.to_public_key().to_hex()}`));
+      tx.set_input(0, nftTxIn);
+
+      // Sign RXD funding inputs
+      fundingInputs.forEach((u, i) => {
+        const idx = 1 + i;
+        const sig = tx.sign(privKey, SigHash.InputsOutputs, idx, p2pkh, BigInt(u.value));
+        const txIn = tx.get_input(idx) as TxIn;
+        txIn.set_unlocking_script(Script.from_asm_string(`${sig.to_hex()} ${privKey.to_public_key().to_hex()}`));
+        tx.set_input(idx, txIn);
+      });
+
+      const rawtx = tx.to_hex();
+      let txid: string | undefined;
+      try {
+        txid = await electrum.broadcast(rawtx);
+      } catch (err: any) {
+        throw new Error(err?.message ?? 'broadcast-error');
+      }
+      if (!txid) throw new Error('broadcast-error');
+
+      await db.transaction('rw', db.utxo, async () => {
+        await db.utxo.delete(nftUtxo.id as number);
+        await db.utxo.bulkDelete(fundingInputs.map(u => u.id));
+        if (rxdChange > 0) {
+          await db.utxo.add({ txid, vout: 1, value: BigInt(rxdChange), type: 'rxd' } as any);
+        }
+      });
+      updateTokenBalances();
+
+      return { txid, error: '' };
+    } catch (err) {
+      return { txid: null, error: (err as Error)?.message ?? 'broadcast-error' };
+    }
+  };
+
+  // Seller: create partial atomic swap offer for an NFT (no pre-split needed — singleton is always 1 UTXO)
+  const createNftSwapOffer = async (params: {
+    offerTokenRef: string;   // NFT ref ("txid_BE:vout" or raw)
+    wantTokenRef: string;    // FT ref or "rxd"
+    wantTokenTicker?: string;
+    wantAmount: bigint;
+    password: string;
+  }): Promise<{ partialRawtx: string } | { error: string }> => {
+    try {
+      const isWantRxd   = params.wantTokenRef === 'rxd';
+      const offerDexRef = colonToRef(params.offerTokenRef);
+      const wantDexRef  = isWantRxd ? '' : colonToRef(params.wantTokenRef);
+
+      const offerToken = await db.token.get({ ref: offerDexRef });
+      if (!offerToken || offerToken.type !== 'nft') return { error: 'offer-token-not-found' };
+
+      const nftUtxo = await db.utxo.where({ tokenId: offerToken.id }).first();
+      if (!nftUtxo) return { error: 'insufficient-funds' };
+
+      let wantToken: Token | undefined;
+      if (!isWantRxd) {
+        wantToken = await db.token.get({ ref: wantDexRef });
+        if (!wantToken && params.wantTokenTicker) {
+          const all = await db.token.toArray();
+          wantToken = all.find(t => t.ticker.toUpperCase() === params.wantTokenTicker!.toUpperCase());
+        }
+      }
+
+      const walletUnlocked = !locked.value;
+      if (!walletUnlocked) {
+        const ok = await verifyPassword(params.password);
+        if (!ok) return { error: 'invalid-password' };
+      }
+      const keys = walletUnlocked ? await getSessionKeys() : await retrieveKeys(params.password);
+      if (!keys?.walletWif) throw new Error('undefined-key');
+      const privKey = PrivateKey.from_wif(keys.walletWif);
+
+      const sellerAddr = rxdAddress.value;
+      const nftRef     = offerToken.ref;
+      const wantRef    = wantToken?.ref ?? wantDexRef;
+      const nftSats    = nftUtxo.value;
+
+      const tx = new Transaction(1, 0);
+
+      // Input[0]: the NFT UTXO
+      const sellerTxIn = new TxIn(hexToBytes(nftUtxo.txid), nftUtxo.vout, Script.from_hex(''));
+      sellerTxIn.set_satoshis(nftSats);
+      sellerTxIn.set_locking_script(nftScript(sellerAddr, nftRef));
+      tx.add_input(sellerTxIn);
+      tx.set_input(0, sellerTxIn);
+
+      // Output[0]: payment to seller (committed by ANYONECANPAY|SINGLE)
+      if (isWantRxd) {
+        tx.add_output(new TxOut(params.wantAmount, P2PKHAddress.from_string(sellerAddr).get_locking_script()));
+      } else {
+        tx.add_output(new TxOut(params.wantAmount, ftScript(sellerAddr, wantRef)));
+      }
+
+      // Sign with ANYONECANPAY|SINGLE — buyer can add their inputs/outputs freely
+      const sig = tx.sign(privKey, SIGHASH_SWAP_OFFER, 0, nftScript(sellerAddr, nftRef), nftSats);
+      sellerTxIn.set_unlocking_script(
+        Script.from_asm_string(`${sig.to_hex()} ${privKey.to_public_key().to_hex()}`),
+      );
+      tx.set_input(0, sellerTxIn);
+
+      return { partialRawtx: tx.to_hex() };
+    } catch (err) {
+      logger.error('[createNftSwapOffer]', err);
+      return { error: (err as Error)?.message ?? 'unknown' };
+    }
+  };
+
+  // Buyer: complete an NFT atomic swap — adds payment inputs/outputs and broadcasts
+  const completeNftSwapOffer = async (params: {
+    partialRawtx: string;
+    offerTokenRef: string;    // the NFT being received
+    wantTokenRef: string;     // what buyer pays ("rxd" or FT ref)
+    wantTokenTicker?: string;
+    wantAmount: bigint;
+    sellerAddress: string;
+    password: string;
+  }): Promise<{ txid: string } | { error: string }> => {
+    try {
+      const buyerAddr  = rxdAddress.value;
+      const isWantRxd  = params.wantTokenRef === 'rxd';
+
+      const partialTx        = Transaction.from_hex(params.partialRawtx);
+      const sellerInputRaw   = partialTx.get_input(0);
+      const paymentOutput    = partialTx.get_output(0);
+      if (!sellerInputRaw || !paymentOutput) return { error: 'invalid-partial-tx' };
+
+      // Fetch seller's previous tx to get the NFT locking script and satoshi value
+      const prevTxIdHex  = Buffer.from(sellerInputRaw.get_prev_tx_id() as Uint8Array).toString('hex');
+      const prevTxHex    = await electrum.getTransaction(prevTxIdHex);
+      if (!prevTxHex) return { error: 'invalid-partial-tx' };
+      const prevTxParsed = Transaction.from_hex(prevTxHex);
+      const sellerVout   = sellerInputRaw.get_vout() as number;
+      const sellerUtxoOut = prevTxParsed.get_output(sellerVout);
+      if (!sellerUtxoOut) return { error: 'invalid-partial-tx' };
+
+      const sellerScriptHex = sellerUtxoOut.get_script_pub_key().to_hex();
+      const { ref: nftRef } = parseNftScript(sellerScriptHex);
+      if (!nftRef) return { error: 'invalid-partial-tx' };
+
+      const nftSats = sellerUtxoOut.get_satoshis() as bigint;
+      const nftLockingScript = nftScript(params.sellerAddress, nftRef);
+
+      const walletUnlocked = !locked.value;
+      if (!walletUnlocked) {
+        const ok = await verifyPassword(params.password);
+        if (!ok) return { error: 'invalid-password' };
+      }
+      const keys = walletUnlocked ? await getSessionKeys() : await retrieveKeys(params.password);
+      if (!keys?.walletWif) throw new Error('undefined-key');
+      const privKey = PrivateKey.from_wif(keys.walletWif);
+
+      const p2pkh = P2PKHAddress.from_string(buyerAddr).get_locking_script();
+
+      // Select buyer's payment inputs
+      let buyerPaymentInputs: Awaited<ReturnType<typeof getUtxos>> = [];
+      let paymentChange = 0n;
+      let hasPaymentChange = false;
+
+      if (!isWantRxd) {
+        // Buyer pays with FT
+        const wantDexRef  = colonToRef(params.wantTokenRef);
+        let wantToken = await db.token.get({ ref: wantDexRef });
+        if (!wantToken && params.wantTokenTicker) {
+          const all = await db.token.toArray();
+          wantToken = all.find(t => t.ticker.toUpperCase() === params.wantTokenTicker!.toUpperCase());
+        }
+        if (!wantToken) return { error: 'payment-token-not-found' };
+
+        const wantUtxos = await db.utxo.where({ tokenId: wantToken.id }).toArray();
+        const totalWant = wantUtxos.reduce((a, u) => a + u.value, 0n);
+        if (totalWant < params.wantAmount) return { error: 'insufficient-funds' };
+
+        buyerPaymentInputs = getInputs(wantUtxos, params.wantAmount, 0n, false);
+        paymentChange  = buyerPaymentInputs.reduce((a, u) => a + u.value, 0n) - params.wantAmount;
+        hasPaymentChange = paymentChange > 0n;
+      }
+
+      // Calculate fee
+      const baseInputSizes = [
+        p2pkhScriptSigSize,                               // seller NFT input
+        ...buyerPaymentInputs.map(() => p2pkhScriptSigSize), // buyer FT inputs (0 if RXD payment)
+      ];
+      const outputSizes = isWantRxd
+        ? [p2pkhScriptSize, nftScriptSize, p2pkhScriptSize]  // payment, NFT, RXD change
+        : [
+            ftScriptSize,                                    // FT payment to seller
+            nftScriptSize,                                   // NFT to buyer
+            ...(hasPaymentChange ? [ftScriptSize] : []),     // FT change
+            p2pkhScriptSize,                                 // RXD change
+          ];
+
+      const unfundedFee = txSize(baseInputSizes, outputSizes) * FEE_PER_BYTE;
+      const fundingUtxos = await getUtxos(buyerAddr);
+      const totalRxd = fundingUtxos.reduce((a, u) => a + Number(u.value), 0);
+      if (totalRxd < unfundedFee) return { error: 'insufficient-funds' };
+
+      const feePerInput = BigInt(P2PKH_INPUT_SIZE * FEE_PER_BYTE);
+      const fundingInputs = getInputs(fundingUtxos, unfundedFee, feePerInput, false);
+      const allInputSizes = [...baseInputSizes, ...fundingInputs.map(() => p2pkhScriptSigSize)];
+      const txFee    = txSize(allInputSizes, outputSizes) * FEE_PER_BYTE;
+      const rxdChange = fundingInputs.reduce((a, u) => a + Number(u.value), 0) - txFee;
+
+      // Build complete transaction
+      const tx = new Transaction(1, 0);
+
+      // Input[0]: seller's NFT (preserve signature)
+      const sellerTxIn = new TxIn(
+        sellerInputRaw.get_prev_tx_id(),
+        sellerInputRaw.get_vout(),
+        sellerInputRaw.get_unlocking_script(),
+      );
+      sellerTxIn.set_satoshis(nftSats);
+      sellerTxIn.set_locking_script(nftLockingScript);
+      tx.add_input(sellerTxIn);
+      tx.set_input(0, sellerTxIn);
+
+      // Buyer's payment inputs
+      const payCount = buyerPaymentInputs.length;
+      buyerPaymentInputs.forEach((u, i) => {
+        const txIn = new TxIn(hexToBytes(u.txid), u.vout, Script.from_hex(''));
+        txIn.set_satoshis(u.value);
+        tx.add_input(txIn);
+        tx.set_input(1 + i, txIn);
+      });
+
+      // RXD funding inputs
+      const wantDexRef  = !isWantRxd ? colonToRef(params.wantTokenRef) : '';
+      let wantToken: Token | undefined;
+      if (!isWantRxd) {
+        wantToken = await db.token.get({ ref: wantDexRef });
+        if (!wantToken && params.wantTokenTicker) {
+          const all = await db.token.toArray();
+          wantToken = all.find(t => t.ticker.toUpperCase() === params.wantTokenTicker!.toUpperCase());
+        }
+      }
+      fundingInputs.forEach((u, i) => {
+        const txIn = new TxIn(hexToBytes(u.txid), u.vout, Script.from_hex(''));
+        txIn.set_satoshis(BigInt(u.value));
+        tx.add_input(txIn);
+        tx.set_input(1 + payCount + i, txIn);
+      });
+
+      // Outputs
+      tx.add_output(paymentOutput); // Output[0]: payment to seller (from partial tx)
+      tx.add_output(new TxOut(nftSats, nftScript(buyerAddr, nftRef))); // Output[1]: NFT to buyer
+      if (!isWantRxd && hasPaymentChange && wantToken) {
+        tx.add_output(new TxOut(paymentChange, ftScript(buyerAddr, wantToken.ref))); // Output[2]: FT change
+      }
+      if (rxdChange > 0) tx.add_output(new TxOut(BigInt(rxdChange), p2pkh)); // RXD change
+
+      // Sign buyer's FT payment inputs
+      buyerPaymentInputs.forEach((u, i) => {
+        const idx = 1 + i;
+        const sig = tx.sign(privKey, SigHash.InputsOutputs, idx, ftScript(buyerAddr, wantToken!.ref), u.value);
+        const txIn = tx.get_input(idx) as TxIn;
+        txIn.set_unlocking_script(Script.from_asm_string(`${sig.to_hex()} ${privKey.to_public_key().to_hex()}`));
+        tx.set_input(idx, txIn);
+      });
+
+      // Sign RXD funding inputs
+      fundingInputs.forEach((u, i) => {
+        const idx = 1 + payCount + i;
+        const sig = tx.sign(privKey, SigHash.InputsOutputs, idx, p2pkh, BigInt(u.value));
+        const txIn = tx.get_input(idx) as TxIn;
+        txIn.set_unlocking_script(Script.from_asm_string(`${sig.to_hex()} ${privKey.to_public_key().to_hex()}`));
+        tx.set_input(idx, txIn);
+      });
+
+      const rawtx = tx.to_hex();
+      logger.log('[completeNftSwapOffer] broadcasting', rawtx.slice(0, 40), '...');
+      try {
+        await electrum.broadcast(rawtx);
+      } catch (err: any) {
+        throw new Error(err?.message ?? 'broadcast-error');
+      }
+      const rawBytes = hexToBytes(rawtx);
+      const txid = bytesToHex(sha256(sha256(rawBytes)).reverse());
+
+      await db.transaction('rw', db.utxo, async () => {
+        await db.utxo.bulkDelete(buyerPaymentInputs.map(u => u.id));
+        await db.utxo.bulkDelete(fundingInputs.map(u => u.id));
+        if (rxdChange > 0) {
+          const changeVout = !isWantRxd && hasPaymentChange ? 3 : !isWantRxd ? 2 : 2;
+          await db.utxo.add({ txid, vout: changeVout, value: BigInt(rxdChange), type: 'rxd' } as any);
+        }
+      });
+      updateTokenBalances();
+
+      return { txid };
+    } catch (err) {
+      logger.error('[completeNftSwapOffer]', err);
+      return { error: (err as Error)?.message ?? 'unknown' };
+    }
+  };
 
   // Convert "txid_BE:vout_decimal" → Dexie ref (txid_LE + vout_LE_8hex)
   function colonToRef(colonRef: string): string {
@@ -708,8 +1178,11 @@ export const useRadiantTokens = () => {
     isProcessing,
     setIsProcessing,
     sendFt,
+    sendNft,
     createSwapOffer,
     completeSwapOffer,
+    createNftSwapOffer,
+    completeNftSwapOffer,
     getTokenPriceInSats,
   };
 };

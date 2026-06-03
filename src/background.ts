@@ -37,6 +37,8 @@ let responseCallbackForEncryptRequest;
 let responseCallbackForDecryptRequest;
 let responseCallbackForCreateSwapOfferRequest;
 let responseCallbackForCompleteSwapOfferRequest;
+let responseCallbackForCreateNftSwapOfferRequest;
+let responseCallbackForCompleteNftSwapOfferRequest;
 let popupWindowId: number | undefined | null = null;
 
 
@@ -146,6 +148,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     'decryptResponse',
     'createSwapOfferResponse',
     'completeSwapOfferResponse',
+    'createNftSwapOfferResponse',
+    'completeNftSwapOfferResponse',
   ];
 
   if (internalResponseActions.includes(message.action)) {
@@ -171,6 +175,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return processCreateSwapOfferResponse(message);
       case 'completeSwapOfferResponse':
         return processCompleteSwapOfferResponse(message);
+      case 'createNftSwapOfferResponse':
+        return processCreateNftSwapOfferResponse(message);
+      case 'completeNftSwapOfferResponse':
+        return processCompleteNftSwapOfferResponse(message);
       default:
         break;
     }
@@ -223,6 +231,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return processCreateSwapOfferRequest(message, sendResponse);
       case 'completeSwapOffer':
         return processCompleteSwapOfferRequest(message, sendResponse);
+      case 'createNftSwapOffer':
+        return processCreateNftSwapOfferRequest(message, sendResponse);
+      case 'completeNftSwapOffer':
+        return processCompleteNftSwapOfferRequest(message, sendResponse);
       case 'getExchangeRate':
         return processGetExchangeRate(sendResponse);
       case 'encrypt':
@@ -1005,6 +1017,76 @@ const processCompleteSwapOfferResponse = (response) => {
   return true;
 };
 
+const processCreateNftSwapOfferRequest = (message, sendResponse) => {
+  if (!message.params) {
+    sendResponse({ type: 'createNftSwapOffer', success: false, error: 'Must provide valid params!' });
+    return;
+  }
+  try {
+    responseCallbackForCreateNftSwapOfferRequest = sendResponse;
+    chrome.storage.local
+      .set({ createNftSwapOfferRequest: message.params })
+      .then(() => launchPopUp());
+  } catch (error) {
+    sendResponse({ type: 'createNftSwapOffer', success: false, error: JSON.stringify(error) });
+  }
+};
+
+const processCompleteNftSwapOfferRequest = (message, sendResponse) => {
+  if (!message.params) {
+    sendResponse({ type: 'completeNftSwapOffer', success: false, error: 'Must provide valid params!' });
+    return;
+  }
+  try {
+    responseCallbackForCompleteNftSwapOfferRequest = sendResponse;
+    chrome.storage.local
+      .set({ completeNftSwapOfferRequest: message.params })
+      .then(() => launchPopUp());
+  } catch (error) {
+    sendResponse({ type: 'completeNftSwapOffer', success: false, error: JSON.stringify(error) });
+  }
+};
+
+const processCreateNftSwapOfferResponse = (response) => {
+  if (!responseCallbackForCreateNftSwapOfferRequest) return true;
+  try {
+    responseCallbackForCreateNftSwapOfferRequest(
+      response?.cancelled
+        ? { type: 'createNftSwapOffer', success: false, error: 'User cancelled' }
+        : response?.error
+          ? { type: 'createNftSwapOffer', success: false, error: response.error }
+          : { type: 'createNftSwapOffer', success: true, data: { partialRawtx: response.partialRawtx } },
+    );
+  } catch (error) {
+    responseCallbackForCreateNftSwapOfferRequest({ type: 'createNftSwapOffer', success: false, error: JSON.stringify(error) });
+  } finally {
+    responseCallbackForCreateNftSwapOfferRequest = null;
+    popupWindowId = null;
+    chrome.storage.local.remove(['createNftSwapOfferRequest', 'popupWindowId']);
+  }
+  return true;
+};
+
+const processCompleteNftSwapOfferResponse = (response) => {
+  if (!responseCallbackForCompleteNftSwapOfferRequest) return true;
+  try {
+    responseCallbackForCompleteNftSwapOfferRequest(
+      response?.cancelled
+        ? { type: 'completeNftSwapOffer', success: false, error: 'User cancelled' }
+        : response?.error
+          ? { type: 'completeNftSwapOffer', success: false, error: response.error }
+          : { type: 'completeNftSwapOffer', success: true, data: { txid: response.txid } },
+    );
+  } catch (error) {
+    responseCallbackForCompleteNftSwapOfferRequest({ type: 'completeNftSwapOffer', success: false, error: JSON.stringify(error) });
+  } finally {
+    responseCallbackForCompleteNftSwapOfferRequest = null;
+    popupWindowId = null;
+    chrome.storage.local.remove(['completeNftSwapOfferRequest', 'popupWindowId']);
+  }
+  return true;
+};
+
 // HANDLE WINDOW CLOSE *****************************************
 
 chrome.windows.onRemoved.addListener((closedWindowId) => {
@@ -1107,6 +1189,26 @@ chrome.windows.onRemoved.addListener((closedWindowId) => {
       });
       responseCallbackForCompleteSwapOfferRequest = null;
       chrome.storage.local.remove('completeSwapOfferRequest');
+    }
+
+    if (responseCallbackForCreateNftSwapOfferRequest) {
+      responseCallbackForCreateNftSwapOfferRequest({
+        type: 'createNftSwapOffer',
+        success: false,
+        error: 'User dismissed the request!',
+      });
+      responseCallbackForCreateNftSwapOfferRequest = null;
+      chrome.storage.local.remove('createNftSwapOfferRequest');
+    }
+
+    if (responseCallbackForCompleteNftSwapOfferRequest) {
+      responseCallbackForCompleteNftSwapOfferRequest({
+        type: 'completeNftSwapOffer',
+        success: false,
+        error: 'User dismissed the request!',
+      });
+      responseCallbackForCompleteNftSwapOfferRequest = null;
+      chrome.storage.local.remove('completeNftSwapOfferRequest');
     }
 
     popupWindowId = null;

@@ -32,6 +32,8 @@ import { GetSignaturesRequest } from './pages/requests/GetSignaturesRequest';
 import { SignMessageRequest } from './pages/requests/SignMessageRequest';
 import { CreateSwapOfferRequest, CreateSwapOfferRequestParams } from './pages/requests/CreateSwapOfferRequest';
 import { CompleteSwapOfferRequest, CompleteSwapOfferRequestParams } from './pages/requests/CompleteSwapOfferRequest';
+import { CreateNftSwapOfferRequest, CreateNftSwapOfferRequestParams } from './pages/requests/CreateNftSwapOfferRequest';
+import { CompleteNftSwapOfferRequest, CompleteNftSwapOfferRequestParams } from './pages/requests/CompleteNftSwapOfferRequest';
 import { Settings } from './pages/Settings';
 import { ColorThemeProps } from './theme';
 import { storage } from './utils/storage';
@@ -89,6 +91,8 @@ export const App = () => {
   const [transferTokenKey, setTransferTokenKey] = useState(0);
   const [createSwapOfferRequest, setCreateSwapOfferRequest] = useState<CreateSwapOfferRequestParams | undefined>();
   const [completeSwapOfferRequest, setCompleteSwapOfferRequest] = useState<CompleteSwapOfferRequestParams | undefined>();
+  const [createNftSwapOfferRequest, setCreateNftSwapOfferRequest] = useState<CreateNftSwapOfferRequestParams | undefined>();
+  const [completeNftSwapOfferRequest, setCompleteNftSwapOfferRequest] = useState<CompleteNftSwapOfferRequestParams | undefined>();
 
   useActivityDetector();
 
@@ -104,6 +108,8 @@ export const App = () => {
         'popupWindowId',
         'createSwapOfferRequest',
         'completeSwapOfferRequest',
+        'createNftSwapOfferRequest',
+        'completeNftSwapOfferRequest',
         'whitelist',
         'signMessageRequest',
         'signTransactionRequest',
@@ -173,6 +179,14 @@ export const App = () => {
         if (result.completeSwapOfferRequest) {
           setCompleteSwapOfferRequest(result.completeSwapOfferRequest);
         }
+
+        if (result.createNftSwapOfferRequest) {
+          setCreateNftSwapOfferRequest(result.createNftSwapOfferRequest);
+        }
+
+        if (result.completeNftSwapOfferRequest) {
+          setCompleteNftSwapOfferRequest(result.completeNftSwapOfferRequest);
+        }
       },
     );
   }, [menuContext]);
@@ -201,6 +215,10 @@ export const App = () => {
       else if ('createSwapOfferRequest' in changes && !changes.createSwapOfferRequest?.newValue) setCreateSwapOfferRequest(undefined);
       if (changes.completeSwapOfferRequest?.newValue) setCompleteSwapOfferRequest(changes.completeSwapOfferRequest.newValue);
       else if ('completeSwapOfferRequest' in changes && !changes.completeSwapOfferRequest?.newValue) setCompleteSwapOfferRequest(undefined);
+      if (changes.createNftSwapOfferRequest?.newValue) setCreateNftSwapOfferRequest(changes.createNftSwapOfferRequest.newValue);
+      else if ('createNftSwapOfferRequest' in changes && !changes.createNftSwapOfferRequest?.newValue) setCreateNftSwapOfferRequest(undefined);
+      if (changes.completeNftSwapOfferRequest?.newValue) setCompleteNftSwapOfferRequest(changes.completeNftSwapOfferRequest.newValue);
+      else if ('completeNftSwapOfferRequest' in changes && !changes.completeNftSwapOfferRequest?.newValue) setCompleteNftSwapOfferRequest(undefined);
     };
     chrome.storage.onChanged.addListener(onChanged);
     return () => chrome.storage.onChanged.removeListener(onChanged);
@@ -248,7 +266,9 @@ export const App = () => {
                           !messagesToDecrypt &&
                           !transferTokenRequest &&
                           !createSwapOfferRequest &&
-                          !completeSwapOfferRequest
+                          !completeSwapOfferRequest &&
+                          !createNftSwapOfferRequest &&
+                          !completeNftSwapOfferRequest
                         }
                         whenFalseContent={
                           <>
@@ -314,6 +334,20 @@ export const App = () => {
                                 request={completeSwapOfferRequest as CompleteSwapOfferRequestParams}
                                 popupId={popupId}
                                 onResponse={() => setCompleteSwapOfferRequest(undefined)}
+                              />
+                            </Show>
+                            <Show when={!!createNftSwapOfferRequest}>
+                              <CreateNftSwapOfferRequest
+                                request={createNftSwapOfferRequest as CreateNftSwapOfferRequestParams}
+                                popupId={popupId}
+                                onResponse={() => setCreateNftSwapOfferRequest(undefined)}
+                              />
+                            </Show>
+                            <Show when={!!completeNftSwapOfferRequest}>
+                              <CompleteNftSwapOfferRequest
+                                request={completeNftSwapOfferRequest as CompleteNftSwapOfferRequestParams}
+                                popupId={popupId}
+                                onResponse={() => setCompleteNftSwapOfferRequest(undefined)}
                               />
                             </Show>
                           </>
