@@ -320,14 +320,27 @@ export const Settings = () => {
   );
 
   const connectedAppsPage = (
-    <PageWrapper $marginTop={connectedApps.length === 0 ? '10rem' : '-1rem'}>
-      <Show when={connectedApps.length > 0} whenFalseContent={<Text theme={theme}>No apps connected</Text>}>
-        <ScrollableContainer>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'absolute', top: '4.25rem', bottom: '3.75rem', width: '100%' }}>
+      <Show when={connectedApps.length > 0} whenFalseContent={
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Text theme={theme}>No apps connected</Text>
+        </div>
+      }>
+        <ScrollableContainer style={{ flex: 1, height: 'auto', maxHeight: 'none' }}>
           {connectedApps.map((app, idx) => {
+            const fallbackIcon = `https://${app.domain}/favicon.ico`;
+            const iconSrc = app.icon || fallbackIcon;
             return (
               <ConnectedAppRow key={app.domain + idx} theme={theme}>
                 <ImageAndDomain>
-                  <AppIcon src={app.icon} />
+                  <AppIcon
+                    src={iconSrc}
+                    onError={(e) => {
+                      const img = e.currentTarget as HTMLImageElement;
+                      if (img.src !== fallbackIcon) img.src = fallbackIcon;
+                      else img.style.visibility = 'hidden';
+                    }}
+                  />
                   <SettingsText theme={theme}>{app.domain}</SettingsText>
                 </ImageAndDomain>
                 <XIcon src={x} onClick={() => handleRemoveDomain(app.domain)} />
@@ -336,8 +349,10 @@ export const Settings = () => {
           })}
         </ScrollableContainer>
       </Show>
-      <Button theme={theme} type="secondary" label={'Go back'} onClick={() => setPage('main')} />
-    </PageWrapper>
+      <div style={{ width: '100%', padding: '0.75rem 1rem', flexShrink: 0 }}>
+        <Button theme={theme} type="secondary" label={'Go back'} onClick={() => setPage('main')} />
+      </div>
+    </div>
   );
 
   const exportKeysAsQrCodePage = (

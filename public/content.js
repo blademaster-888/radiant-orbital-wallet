@@ -15,7 +15,8 @@ document.addEventListener('OrbitalRequest', (e) => {
     params.appIcon =
       document.querySelector('link[rel="apple-touch-icon"]')?.href ||
       document.querySelector('link[rel="icon"]')?.href ||
-      '';
+      document.querySelector('link[rel="shortcut icon"]')?.href ||
+      `${window.location.origin}/favicon.ico`;
   }
 
   if (Array.isArray(originalParams)) {
