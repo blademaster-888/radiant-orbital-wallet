@@ -16,4 +16,10 @@ export const LEGACY_WALLET_PATH = "m/44'/0'/0'/0/0";
 export const LEGACY_IDENTITY_PATH = "m/44'/0'/0'/1/0";
 
 // Featured 3rd party integrations
-export const featuredApps = [];
+export const featuredApps = [
+  {
+    name: 'Orbital Market',
+    link: 'https://orbitalmarket.trade',
+    icon: 'https://orbitalmarket.trade/favicon.ico',
+  },
+];
