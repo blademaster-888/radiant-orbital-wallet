@@ -102,4 +102,5 @@ export async function batchRequests<ParamType, ValueType>(
 }
 
 const electrum = new Electrum();
+electrum.changeEndpoint('wss://electrumx.radiant4people.com:50022');
 export default electrum;

@@ -101,7 +101,7 @@ export const useRxd = () => {
       const p2pkh = P2PKHAddress.from_string(rxdAddress.value).get_locking_script();
 
       // Format in and outs
-      const fundingUtxos = await getUtxos(fromAddress);
+      const fundingUtxos = await getUtxos(fromAddress, true);
 
       if (!fundingUtxos) throw Error('No Utxos!');
       const totalSats = fundingUtxos.reduce((a: number, item: Utxo) => a + Number(item.value), 0);

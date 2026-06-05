@@ -19,7 +19,8 @@ import { useSocialProfile } from '../hooks/useSocialProfile';
 import { useTheme } from '../hooks/useTheme';
 import { useWeb3Context } from '../hooks/useWeb3Context';
 import { ColorThemeProps } from '../theme';
-import { SNACKBAR_TIMEOUT } from '../utils/constants';
+import { SNACKBAR_TIMEOUT, DEFAULT_ELECTRUM_SERVERS } from '../utils/constants';
+import electrum from '../Electrum';
 import { NetWork } from '../utils/network';
 import { session, storage } from '../utils/storage';
 import { network } from '../signals';
@@ -94,6 +95,46 @@ const ExportKeysAsQrCodeContainer = styled.div`
   padding: 1rem;
 `;
 
+const NodeRow = styled.div<ColorThemeProps & { $selected: boolean }>`
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 1rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  background-color: ${({ $selected, theme }) => ($selected ? theme.darkAccent : 'transparent')};
+  width: 100%;
+  &:hover {
+    background-color: ${({ theme }) => theme.darkAccent};
+  }
+`;
+
+const RadioDot = styled.div<ColorThemeProps & { $selected: boolean }>`
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 50%;
+  border: 2px solid ${({ theme }) => theme.white};
+  background-color: ${({ $selected, theme }) => ($selected ? theme.white : 'transparent')};
+  flex-shrink: 0;
+`;
+
+const NodeUrl = styled.span<ColorThemeProps>`
+  color: ${({ theme }) => theme.white};
+  font-size: 0.7rem;
+  word-break: break-all;
+  text-align: left;
+  flex: 1;
+`;
+
+const StatusDot = styled.div<{ $status: 'checking' | 'ok' | 'error' }>`
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background-color: ${({ $status }) =>
+    $status === 'ok' ? '#22c55e' : $status === 'error' ? '#ef4444' : '#6b7280'};
+`;
+
 const PageWrapper = styled.div<{ $marginTop: string }>`
   display: flex;
   flex-direction: column;
@@ -108,7 +149,8 @@ type SettingsPage =
   | 'social-profile'
   | 'export-keys-options'
   | 'export-keys-qr'
-  | 'preferences';
+  | 'preferences'
+  | 'electrum-nodes';
 type DecisionType = 'sign-out' | 'export-keys' | 'export-keys-qr-code';
 
 export const Settings = () => {
@@ -129,6 +171,8 @@ export const Settings = () => {
 
   const [enteredSocialDisplayName, setEnteredSocialDisplayName] = useState(socialProfile.displayName);
   const [enteredSocialAvatar, setEnteredSocialAvatar] = useState(socialProfile?.avatar);
+  const [selectedEndpoint, setSelectedEndpoint] = useState<string>(DEFAULT_ELECTRUM_SERVERS[0]);
+  const [serverStatus, setServerStatus] = useState<Record<string, 'checking' | 'ok' | 'error'>>({});
 
   useEffect(() => {
     const getWhitelist = (): Promise<string[]> => {
@@ -147,6 +191,49 @@ export const Settings = () => {
 
     getWhitelist();
   }, []);
+
+  useEffect(() => {
+    storage.get(['electrumEndpoint'], (result) => {
+      setSelectedEndpoint(result.electrumEndpoint || DEFAULT_ELECTRUM_SERVERS[0]);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (page !== 'electrum-nodes') return;
+    const initial: Record<string, 'checking' | 'ok' | 'error'> = {};
+    DEFAULT_ELECTRUM_SERVERS.forEach((url) => (initial[url] = 'checking'));
+    setServerStatus(initial);
+
+    DEFAULT_ELECTRUM_SERVERS.forEach((url) => {
+      const timer = setTimeout(() => {
+        ws.close();
+        setServerStatus((prev) => ({ ...prev, [url]: 'error' }));
+      }, 5000);
+      let ws: WebSocket;
+      try {
+        ws = new WebSocket(url);
+        ws.onopen = () => {
+          clearTimeout(timer);
+          ws.close();
+          setServerStatus((prev) => ({ ...prev, [url]: 'ok' }));
+        };
+        ws.onerror = () => {
+          clearTimeout(timer);
+          setServerStatus((prev) => ({ ...prev, [url]: 'error' }));
+        };
+      } catch {
+        clearTimeout(timer);
+        setServerStatus((prev) => ({ ...prev, [url]: 'error' }));
+      }
+    });
+  }, [page]);
+
+  const handleEndpointSelect = (url: string) => {
+    setSelectedEndpoint(url);
+    storage.set({ electrumEndpoint: url });
+    electrum.changeEndpoint(url);
+    addSnackbar('Electrum node updated', 'success');
+  };
 
   const handleRemoveDomain = (domain: string) => {
     const newList = connectedApps.filter((app) => app.domain !== domain);
@@ -308,6 +395,12 @@ export const Settings = () => {
       />
       */}
       <SettingsRow
+        name="Electrum Node"
+        description="Select the ElectrumX server to connect to"
+        onClick={() => setPage('electrum-nodes')}
+        jsxElement={<ForwardButton />}
+      />
+      <SettingsRow
         name="Export Keys"
         description="Download keys or export as QR code"
         onClick={() => setPage('export-keys-options')}
@@ -448,6 +541,23 @@ export const Settings = () => {
     </PageWrapper>
   );
 
+  const electrumNodesPage = (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'absolute', top: '4.25rem', bottom: '3.75rem', width: '100%' }}>
+      <ScrollableContainer style={{ flex: 1, height: 'auto', maxHeight: 'none' }}>
+        {DEFAULT_ELECTRUM_SERVERS.map((url) => (
+          <NodeRow key={url} theme={theme} $selected={selectedEndpoint === url} onClick={() => handleEndpointSelect(url)}>
+            <RadioDot theme={theme} $selected={selectedEndpoint === url} />
+            <NodeUrl theme={theme}>{url}</NodeUrl>
+            <StatusDot $status={serverStatus[url] ?? 'checking'} />
+          </NodeRow>
+        ))}
+      </ScrollableContainer>
+      <div style={{ width: '100%', padding: '0.75rem 1rem', flexShrink: 0 }}>
+        <Button theme={theme} type="secondary" label="Go back" onClick={() => setPage('main')} />
+      </div>
+    </div>
+  );
+
   return (
     <Show
       when={!showSpeedBump}
@@ -470,6 +580,7 @@ export const Settings = () => {
         <Show when={page === 'social-profile'}>{socialProfilePage}</Show>
         <Show when={page === 'export-keys-options'}>{exportKeyOptionsPage}</Show>
         <Show when={page === 'export-keys-qr'}>{exportKeysAsQrCodePage}</Show>
+        <Show when={page === 'electrum-nodes'}>{electrumNodesPage}</Show>
       </Content>
     </Show>
   );

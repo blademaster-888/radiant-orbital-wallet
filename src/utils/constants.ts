@@ -15,11 +15,20 @@ export const DEFAULT_IDENTITY_PATH = "m/44'/512'/0'/1/0";
 export const LEGACY_WALLET_PATH = "m/44'/0'/0'/0/0";
 export const LEGACY_IDENTITY_PATH = "m/44'/0'/0'/1/0";
 
+export const DEFAULT_ELECTRUM_SERVERS = [
+  'wss://electrumx.radiant4people.com:50022',
+  'wss://electrumx2.radiant4people.com:50022',
+  'wss://electrumx.radiantcore.org',
+  'wss://radiant2.bladenet.online:50022',
+  'wss://radiantus.bladenet.online:50022',
+  'wss://radiant4.bladenet.online:50022',
+];
+
 // Featured 3rd party integrations
 export const featuredApps = [
   {
     name: 'Orbital Market',
     link: 'https://orbitalmarket.trade',
-    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIj48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI2IiBmaWxsPSIjMWExYTJlIi8+PHBhdGggZD0iTTEyIDNMMyA3LjVsOSA0LjUgOS00LjVMMTIgM3pNMyAxNi41bDkgNC41IDktNC41TTMgMTJsOSA0LjUgOS00LjUiIHN0cm9rZT0iI2Y1OWUwYiIgc3Ryb2tlLXdpZHRoPSIxLjgiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIgZmlsbD0ibm9uZSIvPjwvc3ZnPg==',
+    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIj48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI2IiBmaWxsPSIjMGEwMDE4Ii8+PHBhdGggZD0iTTEyIDNMMyA3LjVsOSA0LjUgOS00LjVMMTIgM3pNMyAxNi41bDkgNC41IDktNC41TTMgMTJsOSA0LjUgOS00LjUiIHN0cm9rZT0iIzAwZmZmZiIgc3Ryb2tlLXdpZHRoPSIxLjgiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIgZmlsbD0ibm9uZSIvPjwvc3ZnPg==',
   },
 ];

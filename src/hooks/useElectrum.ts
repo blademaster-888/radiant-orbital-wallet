@@ -35,6 +35,7 @@ export const useElectrum = () => {
       const p2pkh = P2PKHAddress.from_string(fromAddress).get_locking_script().to_hex();
       const p2pkhScriptHash = scriptHash(p2pkh);
       const allUnspent = await electrum.listUnspent(p2pkhScriptHash);
+      if (!allUnspent) return await db.utxo.where({ type: 'rxd' }).toArray();
       const { newUnspent, spent } = await unspentDiff(allUnspent, 'rxd');
 
       // Remove spent UTXOs

@@ -38,6 +38,7 @@ import { Settings } from './pages/Settings';
 import { ColorThemeProps } from './theme';
 import { storage } from './utils/storage';
 import electrum from './Electrum';
+import { DEFAULT_ELECTRUM_SERVERS } from './utils/constants';
 import { locked, rxdAddress, walletExists } from './signals';
 import { useSignals } from '@preact/signals-react/runtime';
 
@@ -225,7 +226,12 @@ export const App = () => {
   }, []);
 
   useEffect(() => {
-    electrum.changeEndpoint('wss://electrumx.radiant4people.com:50022');
+    storage.get(['electrumEndpoint'], (result) => {
+      const endpoint = result.electrumEndpoint || DEFAULT_ELECTRUM_SERVERS[0];
+      if (endpoint !== electrum.endpoint) {
+        electrum.changeEndpoint(endpoint);
+      }
+    });
   }, []);
 
   return (
