@@ -64,7 +64,7 @@ const createOrbitalEventEmitter = () => {
 
 const provider = {
   isReady: true,
-  version: "0.1.5",
+  version: "0.1.51",
   ...createOrbitalEventEmitter(),
   connect: createOrbitalMethod('connect'),
   disconnect: createOrbitalMethod('disconnect'),
